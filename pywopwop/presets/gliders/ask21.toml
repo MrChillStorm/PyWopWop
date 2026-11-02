@@ -1,0 +1,87 @@
+# Schleicher ASK 21, from the FlightGear ASK 21 JSBSim model's geometry (fdm/geometry.py), which cites:
+#   [TCDS/FM] span 17.0 m, area 17.95 m2, FX S 02-196 / FX 60-126
+#   [Mi-WHB]  ASK 21 Mi flight manual: tailplane 3.1 m / 1.92 m2 / chords 0.8-0.4 m, FX 71-L-150/30; fin 1.357 m2;
+#             airbrakes 0.326 m2 (both), 2.9-4.3 m, upper surface
+#   [3-view]  K21 three-view (CC BY 4.0): planform, dihedral, fuselage contours
+#   [AFFTC]   AFFTC-TR-89-27: pilot moment arms
+# Frame (as geometry.py's datum frame D): X aft of the wing root leading edge, Y right, Z up, metres.
+[glider]
+name = "ASK 21"
+description = "Two-seat glider trainer, 17 m span"
+mass_kg = 540.0                 # two pilots (empty about 360 kg); 600 kg maximum
+wing_area = 17.95
+span = 17.0
+dihedral_deg = 4.0
+fuselage_half_width = 0.355
+cg_x = 0.275                    # m aft of the datum: empty 360 kg at 29.02 in (AFFTC), pilots at the arms below
+
+[wing]
+y = [0.0, 0.36, 1.16, 1.97, 2.77, 3.58, 4.38, 5.18, 5.99, 6.79, 7.60, 8.40, 8.50]
+chord = [1.52, 1.50, 1.401, 1.327, 1.247, 1.164, 1.081, 1.001, 0.880, 0.758, 0.636, 0.512, 0.40]
+x_le = [0.0, 0.0, -0.013, -0.017, -0.014, -0.008, -0.003, 0.0, 0.009, 0.017, 0.025, 0.036, 0.05]
+strip_edges = [0.355, 0.9, 1.40, 2.0, 2.40, 2.90, 3.60, 4.30, 5.20, 5.80, 6.40, 7.00, 7.50, 7.95, 8.25, 8.50]
+root_section = "fxs02196"
+tip_section = "fx60126"
+kink_y = 5.20                   # FX S 02-196 to here, blended into the FX 60-126 at the tip
+incidence_y = [0.0, 0.505, 5.20, 7.95, 8.5]
+incidence_deg = [2.48, 2.48, 2.79, 1.99, 1.88]   # to the body x axis (root 2.48, Schleicher rigging data)
+te_thickness = 0.0008           # m, a moulded sharp trailing edge
+
+[ailerons]                      # geometry.py's span; rigging data 110/45 mm at R 240 mm
+y = [5.20, 7.95]
+chord_fraction = 0.24           # the rigging radius at the inner end (assumed the aileron's chord there)
+up_deg = 26.5
+down_deg = 10.8
+
+[airbrakes]                     # Schempp-Hirth plates, upper surface only
+y = [2.90, 4.30]
+height = 0.116                  # m: 0.326 m2 for both over 1.40 m each
+x_c = 0.40
+
+[tailplane]                     # T-tail
+span = 3.10
+area = 1.92
+root_chord = 0.826
+tip_chord = 0.413
+x_le_root = 4.92
+x_le_tip = 5.18
+z = 1.27
+incidence_deg = 0.73            # 0 deg to the levelled fuselage, wing root 1.75 deg above it
+section = "fx71l150"
+elevator_chord_fraction = 0.30  # 0.576 m2 of 1.92 (Mi-WHB)
+elevator_up_deg = 22.6          # rigging data 90/65 mm at R 230 mm
+elevator_down_deg = 16.2
+
+[fin]
+area = 1.357
+z_bottom = -0.05
+z_top = 1.26
+x_le_bottom = 4.645             # at z 0.15
+x_le_top = 4.996                # at z 1.25
+x_te = 5.80
+section = "fx71l150"
+rudder_chord_fraction = 0.31    # 0.42 m2 of 1.357 (Mi-WHB)
+rudder_deg = 27.8               # rigging data 180 mm at R 375 mm
+
+[fuselage]                      # contours: geometry.py's, from the 3-view (top and bottom lines, width)
+x = [-2.575, -2.50, -2.40, -2.20, -2.00, -1.80, -1.60, -1.40, -1.20, -1.00, -0.80, -0.60, -0.40, -0.20, 0.00,
+     0.40, 0.80, 1.00, 1.20, 1.50, 2.00, 2.50, 3.00, 3.50, 4.00, 4.40, 4.80, 5.20, 5.80]
+top_z = [-0.31, -0.234, -0.160, -0.043, 0.049, 0.131, 0.203, 0.263, 0.316, 0.362, 0.402, 0.433, 0.454, 0.465, 0.464,
+         0.440, 0.396, 0.368, 0.336, 0.295, 0.248, 0.213, 0.178, 0.154, 0.131, 0.111, 0.100, 0.090, 0.05]
+bottom_z = [-0.31, -0.363, -0.398, -0.452, -0.491, -0.520, -0.543, -0.560, -0.571, -0.577, -0.577, -0.571, -0.558,
+            -0.544, -0.529, -0.593, -0.557, -0.448, -0.351, -0.316, -0.279, -0.246, -0.215, -0.190, -0.167, -0.148,
+            -0.125, -0.120, 0.0]
+width = [0.0, 0.126, 0.214, 0.341, 0.436, 0.511, 0.572, 0.622, 0.661, 0.685, 0.699, 0.702, 0.698, 0.690, 0.700, 0.705,
+         0.700, 0.650, 0.600, 0.540, 0.494, 0.446, 0.398, 0.350, 0.302, 0.264, 0.226, 0.150, 0.03]
+section_exponent = 2.3          # super-ellipse sections: area 0.82 of width x height, as geometry.py's
+nose_x = -2.575
+transition_x = -1.95            # the canopy's front frame trips the nose's laminar boundary layer
+canopy_x = [-1.92, 0.30]        # front frame to rear frame (the FlightGear model's glass)
+canopy_half_angle_deg = 70.0    # the glass wraps this far around each section from the top (to the sills)
+canopy_surface_mass = 3.6       # kg/m2: 3 mm acrylic
+canopy_thickness = 0.003
+canopy_youngs = 3.2e9           # Pa, acrylic
+
+[cockpit]
+front = [-1.217, 0.0, 0.20]     # the front pilot's head (AFFTC arm 47.91 in ahead of the datum)
+rear = [-0.080, 0.0, 0.30]      # the rear pilot's head (3.15 in ahead)

@@ -108,17 +108,24 @@ def _a0comp(rc):
     return np.select([rc < 9.52e4, rc < 8.57e5], [0.57, -9.57e-13 * (rc - 8.57e5) ** 2 + 1.13], 1.13)
 
 
-def tblte(alpha, c, U, f, L, r, theta, phi, trip, nu, c0):
+def _given_bl(bl, like):
+    """Boundary-layer thicknesses supplied by the caller (delta_p, dstr_s, dstr_p), shaped like the inputs."""
+    return [np.asarray(v, float)[..., None] * np.ones_like(like) for v in bl]
+
+
+def tblte(alpha, c, U, f, L, r, theta, phi, trip, nu, c0, bl=None):
     """Turbulent boundary layer trailing-edge noise and separation noise (TBLTE).
 
     Returns (spl_p, spl_s, spl_alpha, spl_tbl): pressure side, suction side, separation (angle of attack), total.
+    bl: (delta_p, dstr_s, dstr_p) of the section at hand (e.g. from a boundary-layer solver) instead of BPM's NACA
+    0012 correlations.
     """
     alpha, c, U, L, r, theta, phi = [np.asarray(v, float)[..., None] for v in
                                      np.broadcast_arrays(alpha, c, U, L, r, theta, phi)]
     f = np.asarray(f, float)
     rc = U * c / nu
     M = U / c0
-    delta_p, dstr_s, dstr_p = bl_thickness(c, U, alpha, trip, nu)
+    delta_p, dstr_s, dstr_p = bl_thickness(c, U, alpha, trip, nu) if bl is None else _given_bl(bl, alpha)
     dbar_l = directivity_low(M, theta, phi)
     dbar_h = directivity_high(M, theta, phi)
     rdstr_p = dstr_p * U / nu
@@ -172,14 +179,14 @@ def tblte(alpha, c, U, f, L, r, theta, phi, trip, nu, c0):
     return spl_p, spl_s, spl_a, spl_tbl
 
 
-def lblvs(alpha, c, U, f, L, r, theta, phi, trip, nu, c0):
+def lblvs(alpha, c, U, f, L, r, theta, phi, trip, nu, c0, bl=None):
     """Laminar boundary layer vortex shedding noise (LBLVS)."""
     alpha, c, U, L, r, theta, phi = [np.asarray(v, float)[..., None] for v in
                                      np.broadcast_arrays(alpha, c, U, L, r, theta, phi)]
     f = np.asarray(f, float)
     M = U / c0
     rc = U * c / nu
-    delta_p, _, _ = bl_thickness(c, U, alpha, trip, nu)
+    delta_p, _, _ = bl_thickness(c, U, alpha, trip, nu) if bl is None else _given_bl(bl, alpha)
     dbar_h = directivity_high(M, theta, phi)
     st1prim = np.select([rc <= 1.3e5, rc <= 4.0e5], [0.18, 0.001756 * rc ** 0.3931], 0.28)
     stpkprm = 10.0 ** (-0.04 * alpha) * st1prim
@@ -214,13 +221,13 @@ def _g5comp(hdstar, eta):
                      -155.543 * eta + 4.375)
 
 
-def blunt(alpha, c, U, f, L, r, theta, phi, h, psi, trip, nu, c0):
+def blunt(alpha, c, U, f, L, r, theta, phi, h, psi, trip, nu, c0, bl=None):
     """Trailing-edge bluntness vortex shedding noise (BLUNT); h TE thickness (m), psi TE angle (deg)."""
     alpha, c, U, L, r, theta, phi, h, psi = [np.asarray(v, float)[..., None] for v in
                                              np.broadcast_arrays(alpha, c, U, L, r, theta, phi, h, psi)]
     f = np.asarray(f, float)
     M = U / c0
-    _, dstr_s, dstr_p = bl_thickness(c, U, alpha, trip, nu)
+    _, dstr_s, dstr_p = bl_thickness(c, U, alpha, trip, nu) if bl is None else _given_bl(bl, alpha)
     dstravg = (dstr_s + dstr_p) / 2.0
     hdstar = h / dstravg
     dstarh = 1.0 / hdstar

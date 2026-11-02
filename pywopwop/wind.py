@@ -51,9 +51,15 @@ def _goody(w, rt):
 def wall_pressure_psd(f, U, x, atm):
     """the wall pressure's one-sided spectrum (Pa^2/Hz) at the frequencies f (Hz)"""
     delta, tau, re_tau, rt = boundary_layer(U, x, atm)
+    p2 = tau ** 2 * (6.5 + 1.86 * np.log(max(re_tau, 333.0) / 333.0))
+    return goody_psd(f, U, delta, p2, rt)
+
+
+def goody_psd(f, U, delta, p2, rt):
+    """Goody's shape for a layer delta (m) thick under the flow speed U (m/s), with the variance p2 (Pa^2) and the
+    ratio of outer to inner time scales rt: the one-sided spectrum (Pa^2/Hz) at the frequencies f (Hz)"""
     s = np.linspace(-12.0, 12.0, 4801)
     integral = np.trapezoid(_goody(np.exp(s), rt) * np.exp(s), s)        # over w, 0 to infinity
-    p2 = tau ** 2 * (6.5 + 1.86 * np.log(max(re_tau, 333.0) / 333.0))
     w = 2.0 * np.pi * np.asarray(f, float) * delta / U
     return p2 * _goody(w, rt) / integral * delta / U * 2.0 * np.pi
 

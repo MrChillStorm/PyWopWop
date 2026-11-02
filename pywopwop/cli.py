@@ -173,6 +173,46 @@ def cmd_play(a):
     play(a.files, gains=a.gain, volume=10 ** (a.volume / 20.0), seconds=a.seconds)
 
 
+def cmd_glider(a):
+    from .glider import GliderCondition, load_glider, render_glider
+    from .synth import write_wav
+    g = load_glider(a.glider)
+    if a.cockpit or a.rear:
+        o = Observer("cockpit_rear" if a.rear else "cockpit", position=tuple(g.cockpit["rear" if a.rear else "front"]))
+    elif a.az is not None or a.el is not None:
+        o = Observer("custom", a.az or 0.0, a.el or 0.0, a.dist)
+    else:
+        so = STANDARD_OBSERVERS[a.observer]
+        o = Observer(so.name, so.azimuth_deg, so.elevation_deg, a.dist)
+    c = GliderCondition(airspeed_kt=a.speed, brakes=a.brakes, load_factor=a.load_factor, altitude_m=a.altitude,
+                        turbulence_ms=a.turbulence, aileron=a.aileron, rudder=a.rudder)
+    t0 = time.time()
+    r = render_glider(g, c, o, a.fs, a.duration, a.seed, a.environment)
+    x = r.total
+    out = Path(a.output or f"{Path(a.glider).stem}_{a.speed:g}kt_brakes{a.brakes:g}_{o.name}.wav")
+    write_wav(out, x, r.fs, a.bits, 10 ** (a.peak / 20.0) / np.max(np.abs(x)))
+    m = r.meta
+    print(f"wrote {out} ({len(x) / r.fs:.2f} s seamless loop, {time.time() - t0:.1f} s): angle of attack "
+          f"{m['alpha_body']:+.1f} deg, CL {m['CL']:.2f}, elevator {m['elevator_deg']:+.1f} deg"
+          + (f", roll {m['roll_rate_dps']:+.0f} deg/s" if a.aileron else "")
+          + (f", sideslip {m['sideslip_deg']:.0f} deg" if a.rudder else "")
+          + (f", {m['separated_share']:.0%} of the chord separated" if m["separated_share"] > 0 else "")
+          + (", stalled" if m["stalled_share"] > 0 else ""))
+    for k, v in r.levels().items():
+        print(f"  {k:16s} {v['oaspl']:6.1f} dB  {v['dba']:6.1f} dBA")
+
+
+def cmd_glider_bank(a):
+    from .glider import load_glider, make_glider_bank
+    g = load_glider(a.glider)
+    t0 = time.time()
+    print(f"{g.name}: rendering the bank into {a.output}")
+    m = make_glider_bank(g, a.output, distance=a.dist, fs=a.fs, duration=a.duration, bits=a.bits)
+    gains = ", ".join(f"{k} {v:+.1f} dB" for k, v in m["gain_db"].items())
+    print(f"{len(m['files'])} loops, stall {m['stall_speed_kt']:.1f} kt, gains {gains}, {time.time() - t0:.0f} s; "
+          f"FlightGear section: {Path(a.output) / 'pywopwop-glider.xml'}")
+
+
 def cmd_validate(a):
     from . import validation
     ok = validation.run(print)
@@ -260,6 +300,37 @@ def main(argv=None):
     s.add_argument("--volume", type=float, default=0.0, help="overall volume, dB")
     s.add_argument("--seconds", type=float, help="stop after this long (default: Ctrl-C)")
     s.set_defaults(fn=cmd_play)
+    s = sub.add_parser("glider", help="render a glider's airframe sound (wing, tail, canopy wind, airbrakes)")
+    s.add_argument("glider", help="glider preset or TOML file (presets/gliders)")
+    s.add_argument("--speed", type=float, default=60.0, help="true airspeed, kt")
+    s.add_argument("--brakes", type=float, default=0.0, help="airbrake opening, 0..1")
+    s.add_argument("--load-factor", type=float, default=1.0, help="g, a steady pull-up")
+    s.add_argument("--aileron", type=float, default=0.0, help="-1..1 (+ rolls right), a steady roll")
+    s.add_argument("--rudder", type=float, default=0.0, help="-1..1, a steady sideslip")
+    s.add_argument("--altitude", type=float, default=0.0)
+    s.add_argument("--turbulence", type=float, default=1.0, help="rms turbulence the glider meets, m/s")
+    s.add_argument("--cockpit", action="store_true", help="the front pilot's head, under the canopy")
+    s.add_argument("--rear", action="store_true", help="the rear pilot's head")
+    s.add_argument("--observer", choices=sorted(STANDARD_OBSERVERS), default="side")
+    s.add_argument("--az", type=float)
+    s.add_argument("--el", type=float)
+    s.add_argument("--dist", type=float, default=30.0)
+    s.add_argument("--environment", choices=("free", "ground", "open", "urban"), default="open")
+    s.add_argument("--duration", type=float, default=15.0)
+    s.add_argument("--fs", type=float, default=48000.0)
+    s.add_argument("--bits", type=int, choices=(16, 24, 32), default=16)
+    s.add_argument("--peak", type=float, default=-1.0)
+    s.add_argument("--seed", type=int, default=1)
+    s.add_argument("-o", "--output")
+    s.set_defaults(fn=cmd_glider)
+    s = sub.add_parser("glider-bank", help="render a glider's sound bank and its FlightGear section")
+    s.add_argument("glider")
+    s.add_argument("-o", "--output", required=True)
+    s.add_argument("--dist", type=float, default=30.0, help="outside listeners' distance, m")
+    s.add_argument("--duration", type=float, default=15.0)
+    s.add_argument("--fs", type=float, default=48000.0)
+    s.add_argument("--bits", type=int, choices=(16, 24, 32), default=16)
+    s.set_defaults(fn=cmd_glider_bank)
     sub.add_parser("validate", help="check the models against published and closed-form results").set_defaults(
         fn=cmd_validate)
     sub.add_parser("bench", help="time the solvers").set_defaults(fn=cmd_bench)

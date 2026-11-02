@@ -105,6 +105,66 @@ that cross-fades them by the equivalent sea level airspeed V_eq = V (nu/nu_0)^-1
 sqrt(sigma mu/mu_0) for the altitude, from FlightGear's equivalent airspeed and the air's density and temperature: the
 same spectrum as the full model's within 0.5 dB per third octave to 12 km, 1.2 dB at 21 km.
 
+## Gliders
+
+A glider has no engine; what is heard is the air. `pywopwop glider` and `glider-bank` compute it from the glider's
+geometry and sections (preset: `ask21`, from the FlightGear ASK 21 JSBSim model's geometry):
+
+| Source | Model |
+|---|---|
+| Wing and tail | BPM self-noise on the real sections' boundary layers: NeuralFoil gives each strip's trailing-edge displacement thicknesses, transition points and separated share of the chord (FX S 02-196, FX 60-126, FX 71-L-150) at its Reynolds number and angle of attack; lift along the span by Schrenk |
+| Turbulence | Amiet's inflow noise from the air's (or a thermal's) turbulence, and slow level changes as gusts move the airspeed |
+| Canopy wind | the fuselage's potential flow (a panel method on its contours, with the wing's lifting line) at the body's angle of attack and sideslip; each panel of the glass gets the boundary layer of the surface streamline that reaches it, traced back to the nose: laminar to the canopy frame and turbulent from there, thickening where the streamlines converge (the leeward side), separating where it can't stand the pressure rise; Goody's wall pressure on each panel, heard by the solid angle it fills at the ear, through the acrylic (mass law), less what a panel misses below hydrodynamic coincidence |
+| Airbrakes | each plate's vortex shedding and the spoiled section's unsteady lift (Curle dipoles) and its wake at the trailing edge (BPM with the plate's height as the displacement thickness): broadband, growing as the sixth power of the speed, as spoiler studies find |
+| Manoeuvres | a steady pull-up at the load factor, a steady roll at the aileron, a steady sideslip at the rudder: the ailerons (with the FDM's differential), elevator and rudder deflect the sections in NeuralFoil; the roll rate balances the wing's rolling moment, the tailplane the pitching moments about the centre of gravity (the elevator finding its lift, to its stops), the fin the fuselage's yawing moment; each deflected aileron's ends shed vortices (BPM's tip noise at the lift the deflection adds) |
+| Separation and stall | each section's suction side separates from the trailing edge forward as its angle grows, and BPM's separation noise follows that share instead of a NACA 0012's angle: the attached layer's hiss goes, the separated flow's rumble comes, and past the maximum lift BPM's deep stall |
+
+```bash
+pywopwop glider ask21 --speed 55 --cockpit -o thermalling.wav
+pywopwop glider ask21 --speed 60 --brakes 1 --cockpit -o approach_brakes.wav
+pywopwop glider ask21 --speed 64 --load-factor 3.5 -o accelerated_stall.wav
+pywopwop glider ask21 --speed 60 --aileron 1 -o roll.wav
+pywopwop glider-bank ask21 -o out/ask21
+```
+
+The bank has 8 airspeeds from 40 to 150 kt with the brakes fully out and full aileron in a steady roll, and the
+stall at 1, 2, 3.5 and 5 g (an accelerated stall: at n g the wing stalls at the square root of n times the 1 g
+speed, and its separated flow is louder for the speed), and inverted at -1 g (from 1.1 times the inverted stall's
+speed, and that stall), at both seats and 4 positions outside (30 m). Layers:
+`airframe`, `wind` (inside), `brakes` (what the brakes add), `ailerons` (what full aileron and its roll add), and
+`mix` (airframe and wind); the accelerated stalls have the airframe only. Slips (full rudder, about 17 degrees of
+sideslip) have the cockpit's loops. `pywopwop-glider.xml` cross-fades the
+airspeed loops by equal power on `velocities/airspeed-kt`: the canopy's wind by airspeed alone (the 1 g stall's
+loop the lowest), the wing's sound turning to the stall loops' (themselves cross-faded by airspeed) on
+`orientation/alpha-deg` from where its flow begins to separate to the stall; it plays the brakes' layer with the
+square root of `surface-positions/speedbrake-pos-norm` and the ailerons' with
+`surface-positions/left-aileron-pos-norm`; the inverted loops come in for the upright ones as
+`accelerations/pilot-g` goes from +1 to -1, and the slips' wind for the straight flight's as `orientation/side-slip-deg`
+grows to the full-rudder slip's.
+
+The computed stall speed of the ASK 21 at 540 kg is 34.7 kt, the flight manual's 35 kt. In the cockpit the canopy's
+boundary layer dominates: 76 dBA at the stall, 78 at 40 kt, 91 at 150 kt (a study of the K7's cockpit found over 75
+dBA). Toward the stall the wing's root separates from the trailing edge (from 4.3 degrees body angle of attack at
+1 g), its hiss turning to rumble. The canopy's flow stays attached: its boundary layer thickens on the leeward line,
+but the wing's circulation keeps the flow over the canopy speeding up to the wing root, so the cockpit grows quieter
+toward the stall by the airspeed it loses. The brakes add a low rumble, clear outside and at speed, faint under the canopy's hiss at approach speeds:
+how much of their buffet reaches the cockpit through the structure is not modelled, so their layer is separate.
+The airbrakes' force coefficients are assumed values from the bluff-body literature.
+
+In aerobatics the computed sound comes mostly from the airspeed and from the wing's flow separating. A pull at
+3.5 g at 70 kt changes the airframe's sound by about 1 dB; stalled there it is 13 dB louder than the 1 g stall, 17
+dB at 5 g. Full aileron adds about 1 dB outside: the roll rate keeps the ailerons' sections near their angles, and
+what they add comes mostly from the vortices at their ends. The elevator and rudder span their surfaces and add
+little. A slip turns the flow across the canopy: on the windward side its boundary layer is thin and the flow
+slower, on the leeward side the layer gathers, two to four times thicker, and stays attached on the glass (the
+leeward separation runs below the sills); in the cockpit the hiss grows by about 1 dB, brighter on one side and
+duller on the other. Air leaking through the canopy's seals and vents, which a slip's pressure across the cockpit
+drives, is not modelled. Inverted, the cambered wing needs a large negative angle and stalls at 47 kt (35 upright); the canopy
+faces the flow instead of trailing it, its boundary layer thinner and the air over it slower, so its hiss loses
+3-5 dB of its lows at 60 kt and keeps its highs: thinner, brighter. Under the canopy all of the wing's sound lies
+some 40 dB below the canopy's wind: what a pilot feels and hears of
+buffet through the structure is not in the model.
+
 ## Your own rotor
 
 Copy a preset from `pywopwop/presets/` and edit it: everything is SI (m, kg) except angles (deg) and rotor speed
