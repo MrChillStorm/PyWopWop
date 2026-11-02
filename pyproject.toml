@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pywopwop"
+version = "0.1.0"
+description = "Rotor noise from first principles (FW-H Formulation 1A, BPM, blade-vortex interaction), synthesised into seamless sound loops for flight simulators"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "numba>=0.59",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+plot = ["matplotlib>=3.8"]
+play = ["sounddevice>=0.4"]
+
+[project.scripts]
+pywopwop = "pywopwop.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pywopwop*"]
+
+[tool.setuptools.package-data]
+pywopwop = ["presets/*.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

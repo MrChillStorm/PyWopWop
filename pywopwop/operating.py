@@ -1,0 +1,178 @@
+"""From an aircraft and a flight condition to each rotor's operating point, loads and frame.
+
+Heading frame H: x forward (level), y left, z up, moving with the aircraft. The lifting rotors' tip-path planes are
+perpendicular to the force that balances weight and airframe drag; the body hangs with the main rotor shaft along
+it (no hub moment), which sets its pitch attitude. The tail rotor carries the main rotor's torque.
+
+Each rotor's canonical frame (see aero.py) is given by a matrix M whose rows are its x, y, z axes in H, with the
+y row negated for a clockwise rotor so that every rotor is computed turning anticlockwise: a mirror image.
+"""
+from dataclasses import dataclass
+
+import numpy as np
+
+from .aero import AeroOptions, solve_rotor
+from .atmosphere import G0, Atmosphere
+from .model import Aircraft, FlightCondition
+
+
+@dataclass
+class RotorPoint:
+    rotor: object
+    omega: float
+    V: float                    # air speed relative to the aircraft, m/s
+    alpha_tpp: float            # rad
+    thrust: float               # N
+    M: np.ndarray               # 3x3, heading frame -> canonical rotor frame
+    hub: np.ndarray             # hub position in the heading frame, m
+    U: np.ndarray               # air velocity relative to the rotor, canonical frame
+    aero: object = None         # AeroSolution
+    ground_height: float = None     # hub above the ground, m (in ground effect)
+    recirculation_rms: float = 0.0  # rms turbulence of the downwash recirculating through the rotor near the ground
+
+    def to_rotor(self, p_heading):
+        """A heading-frame position (relative to the aircraft origin) in this rotor's canonical frame."""
+        return self.M @ (np.asarray(p_heading, float) - self.hub)
+
+    def vec_to_rotor(self, v_heading):
+        return self.M @ np.asarray(v_heading, float)
+
+
+@dataclass
+class OperatingState:
+    aircraft: Aircraft
+    condition: FlightCondition
+    atm: Atmosphere
+    pitch: float                # body pitch attitude, rad
+    tpp_pitch: float            # main rotor tip-path plane pitch, rad (nose down negative)
+    points: list
+    velocity: np.ndarray        # aircraft velocity, heading frame
+
+    def point(self, name):
+        return next(p for p in self.points if p.rotor.name == name)
+
+
+def _pitch_matrix(theta):
+    """Body -> heading for a nose-up pitch theta (x forward, y left, z up)."""
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
+
+
+def _frame(z_axis, U_h, fallback_aft, spin):
+    z = z_axis / np.linalg.norm(z_axis)
+    up = U_h - np.dot(U_h, z) * z
+    if np.linalg.norm(up) > 0.05:
+        xv = up / np.linalg.norm(up)
+    else:
+        xv = fallback_aft - np.dot(fallback_aft, z) * z
+        if np.linalg.norm(xv) < 1e-6:
+            xv = np.cross(z, [0.0, 1.0, 0.0])
+        xv = xv / np.linalg.norm(xv)
+    yv = np.cross(z, xv)
+    return np.array([xv, spin * yv, z])
+
+
+def operate_airplane(aircraft, cond, opts):
+    """A tiltrotor in airplane mode (nacelles 0): the wing carries the weight, the rotors pull the drag. The angle of
+    attack and each rotor's thrust from the aircraft's level-flight trims at its airspeed; in a climb or descent the
+    weight's component along the path is added to the thrust, the angle of attack kept. The rotors' shafts along the
+    body's x axis, their tip-path planes normal to them."""
+    if not aircraft.airplane_trim or not aircraft.airplane_rpm:
+        raise ValueError(f"{aircraft.name} has no airplane mode (airplane_trim, airplane_rpm)")
+    if cond.nacelle_deg != 0.0:
+        raise ValueError("between helicopter and airplane mode (nacelles 0 < x < 90) is not modelled")
+    atm = Atmosphere(cond.altitude_m, cond.dT, cond.humidity)
+    tab = np.asarray(aircraft.airplane_trim, float)
+    if not tab[0, 0] <= cond.airspeed_kt <= tab[-1, 0]:
+        raise ValueError(f"airplane mode trims cover {tab[0, 0]:g}-{tab[-1, 0]:g} kt")
+    mass = cond.mass_kg or aircraft.mass_kg
+    W = mass * G0 * cond.load_factor
+    vel = cond.velocity
+    V = np.linalg.norm(vel)
+    alpha = np.radians(np.interp(cond.airspeed_kt, tab[:, 0], tab[:, 1]))
+    lifting = [r for r in aircraft.rotors if r.role in ("main", "lift")]
+    thrust = np.interp(cond.airspeed_kt, tab[:, 0], tab[:, 2]) + W * np.sin(cond.gamma) / (len(lifting) * np.cos(alpha))
+    if thrust <= 0:
+        raise ValueError("the descent is too steep: the rotors would windmill")
+    pitch = cond.gamma + alpha
+    Rbh = _pitch_matrix(pitch)
+    U_h = -vel
+    aft_h = Rbh @ np.array([-1.0, 0.0, 0.0])
+    omega = aircraft.airplane_rpm * cond.rpm_percent / 100.0 * 2.0 * np.pi / 60.0
+    points = []
+    for rot in lifting:
+        hub_b, axis_b = rot.tilted(0.0)
+        M = _frame(Rbh @ axis_b, U_h, aft_h, rot.spin_sign)
+        Uc = M @ U_h
+        a = np.arcsin(np.clip(Uc[2] / V, -1.0, 1.0))
+        pt = RotorPoint(rot, omega, V, a, thrust, M, Rbh @ hub_b, Uc)
+        pt.aero = solve_rotor(rot, omega, V, a, thrust, atm.rho, atm.c, atm.nu, opts)
+        points.append(pt)
+    return OperatingState(aircraft, cond, atm, pitch, pitch, points, vel)
+
+
+def operate(aircraft, condition=None, opts=None, rpm_scale=None):
+    """Trim the aircraft in the condition and solve every rotor's loads."""
+    cond = condition or FlightCondition()
+    opts = opts or AeroOptions()
+    if cond.nacelle_deg < 90.0:
+        return operate_airplane(aircraft, cond, opts)
+    atm = Atmosphere(cond.altitude_m, cond.dT, cond.humidity)
+    rho, c, nu = atm.rho, atm.c, atm.nu
+    mass = cond.mass_kg or aircraft.mass_kg
+    W = mass * G0 * cond.load_factor
+    vel = cond.velocity
+    V = np.linalg.norm(vel)
+    D = 0.5 * rho * V ** 2 * aircraft.drag_area_m2
+    hover_w = max(0.0, 1.0 - V / 15.0)
+    F = np.array([0.0, 0.0, W * (1.0 + aircraft.download * hover_w)])
+    if V > 0.1:
+        F = F + D * vel / V
+    n = F / np.linalg.norm(F)
+    tpp_pitch = np.arctan2(-n[0], n[2])
+    main = aircraft.main
+    shaft_tilt = np.arctan2(main.axis[0], main.axis[2])
+    pitch = tpp_pitch + shaft_tilt
+    Rbh = _pitch_matrix(pitch)
+    U_h = -vel
+    aft_h = Rbh @ np.array([-1.0, 0.0, 0.0])
+    lifting = [r for r in aircraft.rotors if r.role in ("main", "lift")]
+    points = []
+    rpm_frac = cond.rpm_percent / 100.0
+    for rot in lifting:
+        omega = rot.omega * rpm_frac
+        M = _frame(n, U_h, aft_h, rot.spin_sign)
+        Uc = M @ U_h
+        alpha = np.arcsin(np.clip(Uc[2] / V, -1.0, 1.0)) if V > 0.1 else 0.0
+        thrust = np.linalg.norm(F) / len(lifting)
+        pt = RotorPoint(rot, omega, V, alpha, thrust, M, Rbh @ np.asarray(rot.position), Uc)
+        if cond.ground_height_m is not None:
+            pt.ground_height = cond.ground_height_m + pt.hub[2]
+        pt.aero = solve_rotor(rot, omega, V, alpha, thrust, rho, c, nu, opts, pt.ground_height)
+        if pt.ground_height is not None:
+            # the downwash spreads over the ground and comes back up through the rotor: turbulence of an assumed
+            # 20 % of the hover induced velocity next to the ground, gone by a hub height of three radii, and
+            # swept away with forward speed
+            vh = np.sqrt(thrust / (2.0 * rho * np.pi * rot.radius ** 2))
+            g = np.clip(1.5 - 0.5 * pt.ground_height / rot.radius, 0.0, 1.0)
+            pt.recirculation_rms = float(0.2 * vh * g / (1.0 + (V / (2.0 * vh)) ** 2))
+        points.append(pt)
+    tail = aircraft.tail
+    if tail is not None:
+        mp = points[0]
+        a_b = np.asarray(tail.axis)
+        p_b = np.asarray(tail.position) - np.asarray(main.position)
+        arm = p_b[0] * a_b[1] - p_b[1] * a_b[0]           # yaw moment about +z per newton of tail thrust
+        need = main.spin_sign * mp.aero.torque              # the reaction on the fuselage is -spin * Q
+        thrust_tr = abs(need / arm) if abs(arm) > 1e-6 else 0.0
+        omega = tail.omega * rpm_frac
+        axis_h = Rbh @ a_b
+        M = _frame(axis_h, U_h, aft_h, tail.spin_sign)
+        Uc = M @ U_h
+        alpha = np.arcsin(np.clip(Uc[2] / V, -1.0, 1.0)) if V > 0.1 else 0.0
+        pt = RotorPoint(tail, omega, V, alpha, thrust_tr, M, Rbh @ np.asarray(tail.position), Uc)
+        pt.aero = solve_rotor(tail, omega, V, alpha, thrust_tr, rho, c, nu,
+                              AeroOptions(n_radial=max(16, opts.n_radial // 2), n_azimuth=opts.n_azimuth, bvi=False,
+                                          elastic=opts.elastic))
+        points.append(pt)
+    return OperatingState(aircraft, cond, atm, pitch, tpp_pitch, points, vel)

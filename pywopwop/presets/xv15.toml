@@ -1,0 +1,56 @@
+# Bell XV-15 tiltrotor in helicopter mode (nacelles vertical). Rotor data from NASA CR-114614 and
+# the twist of the metal blades as collected for the FlightGear V-22 model's XV-15 stage.
+[aircraft]
+name = "XV-15"
+description = "Two three-blade proprotors side by side, 589 rpm, nacelles at 90 deg"
+mass_kg = 5900.0
+drag_area_m2 = 1.6
+download = 0.10              # the wing under the rotors
+cockpit = [4.5, -0.3, -1.4]
+hub_height_m = 4.4               # main rotor hub above the ground on the gear
+
+[[rotor]]
+name = "right"
+role = "main"
+radius = 3.81
+blades = 3
+rpm = 589.0
+chord = 0.356
+root_cutout = 0.1
+twist = [[0.1, 29.43], [0.15, 26.35], [0.2, 23.23], [0.25, 20.07], [0.3, 17.02], [0.35, 14.19], [0.4, 11.51],
+         [0.45, 9.0], [0.5, 7.04], [0.55, 5.34], [0.6, 3.85], [0.65, 2.62], [0.7, 1.31], [0.75, 0.0],
+         [0.8, -1.45], [0.85, -2.83], [0.9, -4.13], [0.95, -5.47], [1.0, -6.76]]
+rotation = "ccw"
+hub = "teetering"
+precone_deg = 2.5
+flap_frequency = 1.03
+lock_number = 3.8
+position = [0.0, -4.9, 0.0]
+axis = [0.0, 0.0, 1.0]
+# gimballed hub; stiff proprotor blades
+coning_frequency = 1.6
+torsion_frequency = 6.0
+airfoil = { name = "NACA 64-series", thickness = 0.12, cl_max = 1.4, cd0 = 0.008, mach_dd = 0.78 }
+
+[[rotor]]
+name = "left"
+role = "lift"
+radius = 3.81
+blades = 3
+rpm = 589.0
+chord = 0.356
+root_cutout = 0.1
+twist = [[0.1, 29.43], [0.15, 26.35], [0.2, 23.23], [0.25, 20.07], [0.3, 17.02], [0.35, 14.19], [0.4, 11.51],
+         [0.45, 9.0], [0.5, 7.04], [0.55, 5.34], [0.6, 3.85], [0.65, 2.62], [0.7, 1.31], [0.75, 0.0],
+         [0.8, -1.45], [0.85, -2.83], [0.9, -4.13], [0.95, -5.47], [1.0, -6.76]]
+rotation = "cw"
+hub = "teetering"
+precone_deg = 2.5
+flap_frequency = 1.03
+lock_number = 3.8
+position = [0.0, 4.9, 0.0]
+axis = [0.0, 0.0, 1.0]
+# gimballed hub; stiff proprotor blades
+coning_frequency = 1.6
+torsion_frequency = 6.0
+airfoil = { name = "NACA 64-series", thickness = 0.12, cl_max = 1.4, cd0 = 0.008, mach_dd = 0.78 }

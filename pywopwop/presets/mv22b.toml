@@ -1,0 +1,70 @@
+# Bell Boeing MV-22B Osprey, helicopter mode (nacelles vertical) and airplane mode, from the FlightGear V-22 JSBSim model's data
+# (fdm/v22data.py): rotor geometry from Rosenstein and Clark (ERF 1986, paper 14, figs. 4 and 16), Acree (NASA
+# TM-2016-219070) and Johnson's TRAM calculations (AHS 2001); the blade's rotating frequencies from the dynamically
+# scaled 1/5-scale WRATS model (Ghiringhelli et al., AHS 1999, NTRS 20040086758, tables 1 and 3), which carry over
+# per rev; the drag area from the flight model's trims at 90 deg of nacelle.
+[aircraft]
+name = "MV-22B"
+description = "Two three-blade gimballed proprotors side by side, 412 rpm; airplane mode (--nacelle 0) 333.5 rpm"
+mass_kg = 21546.0            # 47,500 lb, the flight model's reference loading
+# the airframe's drag at 90 deg of nacelle in the flight model's trims at 80, 100 and 120 kt, least squares in the
+# dynamic pressure: 110 ft^2. Below 80 kt the model's airframe drag is higher than this (the rotors' wake on the
+# wing, skewed back), which one drag area can't hold
+drag_area_m2 = 10.2
+download = 0.10              # the wing under the rotors, flaperons at 67 deg: 9.2 % of thrust (0.658-scale test, RC fig. 18)
+cockpit = [4.28, -0.57, -3.15]   # the right seat's eye, from the FlightGear 3-D model
+hub_height_m = 5.20          # hubs above the ground on the gear, nacelles vertical (3-D model)
+windscreen_m = 2.1           # the windscreen's centroid from the nose's tip (3-D model: 2.09 m)
+# airplane mode (nacelles 0, 84 % = 333.5 rpm): the flight model's level trims at 47,500 lb, 1000 ft (true airspeed kt,
+# angle of attack deg, each rotor's thrust N); the wing (and fuselage and tail) carry 41,000 lb of it
+airplane_rpm = 333.5
+airplane_trim = [[160, 8.81, 14377], [180, 7.01, 12660], [200, 6.22, 11138], [220, 4.76, 11401], [250, 3.03, 12918],
+                 [270, 2.20, 14248]]
+
+[[rotor]]
+name = "right"
+role = "main"
+radius = 5.804               # 38 ft diameter
+blades = 3
+rpm = 412.0                  # 104 %, the helicopter and conversion modes' speed (100 % = 397 rpm, 790 ft/s)
+chord = [[0.15, 0.824], [1.0, 0.559]]   # linear: 22 in at the tip, 34.3 in extrapolated to the centre; solidity 0.105
+root_cutout = 0.15
+twist = [[0.15, 30.0], [0.2, 26.5], [0.3, 19.0], [0.4, 12.5], [0.5, 8.4], [0.6, 5.2], [0.7, 1.8], [0.75, 0.0],
+         [0.8, -1.5], [0.9, -4.5], [1.0, -7.5]]
+rotation = "ccw"             # anticlockwise seen from above ("right rotor clockwise when looking forward" in airplane mode)
+hub = "teetering"            # gimballed: the blades cone by bending about the precone
+precone_deg = 2.5
+lock_number = 3.8
+position = [0.0, -7.04, 0.0]     # hubs 46.2 ft apart
+pivot = [0.306, -7.04, -1.732]   # the conversion axis: the hub 1.732 m above it and 0.306 m aft in helicopter mode
+axis = [0.0, 0.0, 1.0]       # (the shafts' 2.5 deg outboard splay left out, as in the flight model)
+# WRATS in hover (888 rpm, the V-22's 397 Froude scaled): coning 17.2-17.5 Hz (1.17/rev), its non-rotating 6.8 Hz
+# giving 1.16/rev at 104 %; torsion 113.35 Hz cantilevered with the control chain locked, 7.4/rev at 104 % with the
+# propeller moment (the flight model's 7.7/rev at 100 %). The chordwise CG and elastic axis aren't published: the
+# quarter chord
+coning_frequency = 1.16
+torsion_frequency = 7.4
+# one section for the whole blade: the flight model's XN12 at 0.75 R (the blade runs from the XN28 at 0.2 R to the XN09
+# at the tip); its coordinates aren't public, so a 12 % NACA four-digit thickness. Moment -0.8 cl_i / 4
+airfoil = { name = "XN12", table = "xn12_v22", thickness = 0.12, cm0 = -0.03 }
+
+[[rotor]]
+name = "left"
+role = "lift"
+radius = 5.804
+blades = 3
+rpm = 412.0
+chord = [[0.15, 0.824], [1.0, 0.559]]
+root_cutout = 0.15
+twist = [[0.15, 30.0], [0.2, 26.5], [0.3, 19.0], [0.4, 12.5], [0.5, 8.4], [0.6, 5.2], [0.7, 1.8], [0.75, 0.0],
+         [0.8, -1.5], [0.9, -4.5], [1.0, -7.5]]
+rotation = "cw"
+hub = "teetering"
+precone_deg = 2.5
+lock_number = 3.8
+position = [0.0, 7.04, 0.0]
+pivot = [0.306, 7.04, -1.732]
+axis = [0.0, 0.0, 1.0]
+coning_frequency = 1.16
+torsion_frequency = 7.4
+airfoil = { name = "XN12", table = "xn12_v22", thickness = 0.12, cm0 = -0.03 }

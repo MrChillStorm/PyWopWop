@@ -1,0 +1,52 @@
+# MBB Bo 105. Rotor data from USAAMRDL TR-75-50 (C-81 deck), NASA CR-3144 and AGARD AR-280 as collected
+# for the FlightGear Bo 105 JSBSim model.
+[aircraft]
+name = "Bo 105"
+description = "Four-blade hingeless main rotor, 424 rpm; two-blade teetering tail rotor"
+mass_kg = 2200.0
+drag_area_m2 = 1.15
+download = 0.03
+cockpit = [2.0, -0.4, -1.2]
+hub_height_m = 2.9               # main rotor hub above the ground on the gear
+
+[[rotor]]
+name = "main"
+role = "main"
+radius = 4.912
+blades = 4
+rpm = 424.0
+chord = 0.27
+root_cutout = 0.2
+twist = -8.0
+rotation = "ccw"
+hub = "hingeless"
+precone_deg = 2.5
+flap_frequency = 1.12
+lock_number = 5.0
+position = [0.0, 0.0, 0.0]
+axis = [0.0523, 0.0, 0.9986]
+# elastic blade [TR table 4, PT tables 2-3]: soft-in-flap hingeless (1.12/rev), torsion 3.79/rev with the
+# control system, elastic axis 17.95 % and CG 24.4 % chord; torsion damping mostly aerodynamic (about 20 %)
+torsion_frequency = 3.79
+elastic_axis = 0.1795
+cg_axis = 0.244
+clamp_radius = 0.1
+torsion_damping = 0.2
+structural_damping = 0.01
+airfoil = { name = "NACA 23012", table = "naca23012_c81", shape = "naca23012", cl_max = 1.5, te_thickness = 0.002 }
+
+[[rotor]]
+name = "tail"
+role = "tail"
+radius = 0.95
+blades = 2
+rpm = 2226.0                # gear ratio 5.25
+chord = 0.179
+root_cutout = 0.2
+twist = 0.0
+hub = "teetering"
+position = [-5.9, 0.18, -0.05]
+axis = [0.07, -0.997, -0.05]
+tail_top_aft = true
+elastic = false
+airfoil = { name = "NACA 0012", table = "naca0012_c81", shape = "naca0012" }

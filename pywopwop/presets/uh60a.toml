@@ -1,0 +1,52 @@
+# Sikorsky UH-60A Black Hawk. Main and tail rotor from GenHel (NASA CR-166309) as summarised in
+# the FlightGear UH-60 JSBSim model's data; airfoil SC1095 approximated by its thickness and lift.
+[aircraft]
+name = "UH-60A"
+description = "Four-blade articulated main rotor, 258 rpm, swept tips; canted four-blade tail rotor"
+mass_kg = 7258.0            # 16,000 lb design gross weight
+drag_area_m2 = 2.4          # about 26 ft^2
+download = 0.04
+cockpit = [3.8, -0.5, -1.65]
+hub_height_m = 3.6               # main rotor hub above the ground on the gear
+
+[[rotor]]
+name = "main"
+role = "main"
+radius = 8.178              # 26.83 ft
+blades = 4
+rpm = 257.8                 # 27.0 rad/s
+chord = 0.527               # 1.73 ft
+root_cutout = 0.143
+twist = [[0.0, 0.0], [0.15, 0.0], [0.2, -0.15], [0.25, -0.95], [0.3, -1.8], [0.35, -2.75], [0.4, -3.55],
+         [0.45, -4.4], [0.5, -5.3], [0.55, -6.15], [0.6, -7.1], [0.65, -7.9], [0.7, -8.8], [0.75, -9.65],
+         [0.8, -10.3], [0.85, -10.75], [0.9, -12.3], [0.95, -13.1], [1.0, -10.9]]
+rotation = "ccw"
+hub = "articulated"
+flap_frequency = 1.04
+lock_number = 8.2
+tip_sweep_deg = 20.0
+tip_sweep_start = 0.929
+position = [0.0, 0.0, 0.0]
+axis = [0.0523, 0.0, 0.9986]      # shaft tilted 3 deg forward
+# elastic blade: flap hinge at 4.66 % R, first elastic flap mode near 2.8/rev, torsion near 4.4/rev
+flap2_frequency = 2.8
+torsion_frequency = 4.4
+torsion_damping = 0.15
+airfoil = { name = "SC1095", table = "sc1095_genhel", shape = "sc1094r8", cm0 = -0.015, te_thickness = 0.002 }
+
+[[rotor]]
+name = "tail"
+role = "tail"
+radius = 1.676              # 5.5 ft
+blades = 4
+rpm = 1190.0                # 124.62 rad/s
+chord = 0.247
+root_cutout = 0.2
+twist = -18.0
+hub = "articulated"
+lock_number = 3.4
+position = [-9.926, -0.356, 0.246]
+axis = [0.0, -0.9397, 0.3420]     # thrust to the right, canted 20 deg up
+tail_top_aft = true
+elastic = false
+airfoil = { name = "SC1095", table = "sc1095_genhel", shape = "sc1094r8" }

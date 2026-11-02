@@ -1,0 +1,86 @@
+# A generic small quadcopter with 9.4 in two-blade propellers (the size used in NASA's small-rotor
+# acoustic tests). Low Reynolds number: untripped boundary layers, so laminar vortex shedding noise.
+[aircraft]
+name = "Quadcopter"
+description = "Four 0.24 m two-blade propellers at about 5400 rpm"
+mass_kg = 1.3
+drag_area_m2 = 0.012
+download = 0.0
+cockpit = [0.0, 0.0, -0.1]
+hub_height_m = 0.15               # main rotor hub above the ground on the gear
+
+[[rotor]]
+name = "front_right"
+role = "main"
+radius = 0.12
+blades = 2
+rpm = 5400.0
+chord = [[0.15, 0.020], [0.3, 0.028], [0.5, 0.026], [0.7, 0.021], [0.9, 0.015], [1.0, 0.010]]
+root_cutout = 0.15
+twist = [[0.15, 24.0], [0.3, 21.0], [0.5, 16.0], [0.7, 12.0], [0.9, 9.5], [1.0, 8.5]]
+rotation = "ccw"
+hub = "hingeless"
+lock_number = 1.0
+cyclic = false
+elastic = false
+position = [0.125, -0.125, 0.0]
+axis = [0.0, 0.0, 1.0]
+round_tip = true
+airfoil = { name = "thin cambered", thickness = 0.09, alpha0_deg = -3.0, lift_slope = 5.2, cl_max = 1.1, cd0 = 0.018, cd2 = 0.6, trip = 0, te_thickness = 0.008 }
+
+[[rotor]]
+name = "front_left"
+role = "lift"
+radius = 0.12
+blades = 2
+rpm = 5400.0
+chord = [[0.15, 0.020], [0.3, 0.028], [0.5, 0.026], [0.7, 0.021], [0.9, 0.015], [1.0, 0.010]]
+root_cutout = 0.15
+twist = [[0.15, 24.0], [0.3, 21.0], [0.5, 16.0], [0.7, 12.0], [0.9, 9.5], [1.0, 8.5]]
+rotation = "cw"
+hub = "hingeless"
+lock_number = 1.0
+cyclic = false
+elastic = false
+position = [0.125, 0.125, 0.0]
+axis = [0.0, 0.0, 1.0]
+round_tip = true
+airfoil = { name = "thin cambered", thickness = 0.09, alpha0_deg = -3.0, lift_slope = 5.2, cl_max = 1.1, cd0 = 0.018, cd2 = 0.6, trip = 0, te_thickness = 0.008 }
+
+[[rotor]]
+name = "rear_left"
+role = "lift"
+radius = 0.12
+blades = 2
+rpm = 5400.0
+chord = [[0.15, 0.020], [0.3, 0.028], [0.5, 0.026], [0.7, 0.021], [0.9, 0.015], [1.0, 0.010]]
+root_cutout = 0.15
+twist = [[0.15, 24.0], [0.3, 21.0], [0.5, 16.0], [0.7, 12.0], [0.9, 9.5], [1.0, 8.5]]
+rotation = "ccw"
+hub = "hingeless"
+lock_number = 1.0
+cyclic = false
+elastic = false
+position = [-0.125, 0.125, 0.0]
+axis = [0.0, 0.0, 1.0]
+round_tip = true
+airfoil = { name = "thin cambered", thickness = 0.09, alpha0_deg = -3.0, lift_slope = 5.2, cl_max = 1.1, cd0 = 0.018, cd2 = 0.6, trip = 0, te_thickness = 0.008 }
+
+[[rotor]]
+name = "rear_right"
+role = "lift"
+radius = 0.12
+blades = 2
+rpm = 5400.0
+chord = [[0.15, 0.020], [0.3, 0.028], [0.5, 0.026], [0.7, 0.021], [0.9, 0.015], [1.0, 0.010]]
+root_cutout = 0.15
+twist = [[0.15, 24.0], [0.3, 21.0], [0.5, 16.0], [0.7, 12.0], [0.9, 9.5], [1.0, 8.5]]
+rotation = "cw"
+hub = "hingeless"
+lock_number = 1.0
+cyclic = false
+elastic = false
+position = [-0.125, -0.125, 0.0]
+axis = [0.0, 0.0, 1.0]
+round_tip = true
+airfoil = { name = "thin cambered", thickness = 0.09, alpha0_deg = -3.0, lift_slope = 5.2, cl_max = 1.1, cd0 = 0.018, cd2 = 0.6, trip = 0, te_thickness = 0.008 }

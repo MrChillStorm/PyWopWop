@@ -1,0 +1,47 @@
+# Bell UH-1H Iroquois: the classic two-blade teetering rotor whose blade slap named the 'wop wop'.
+# Published geometry (Bell 205 / UH-1H): 48 ft rotor, 21 in chord, NACA 0012, -10 deg twist, 324 rpm.
+[aircraft]
+name = "UH-1H"
+description = "Two-blade teetering main rotor, 324 rpm; two-blade tail rotor on the left of the fin"
+mass_kg = 4100.0
+drag_area_m2 = 1.9
+download = 0.04
+cockpit = [2.6, -0.5, -1.6]
+hub_height_m = 3.9               # main rotor hub above the ground on the gear
+
+[[rotor]]
+name = "main"
+role = "main"
+radius = 7.315
+blades = 2
+rpm = 324.0
+chord = 0.533
+root_cutout = 0.15
+twist = -10.0
+rotation = "ccw"
+hub = "teetering"
+precone_deg = 2.75
+lock_number = 5.2
+position = [0.0, 0.0, 0.0]
+axis = [0.0872, 0.0, 0.9962]      # 5 deg forward mast tilt
+# teetering, preconed; the blades bend in coning (collective mode near 1.25/rev), torsion near 5/rev
+coning_frequency = 1.25
+torsion_frequency = 5.0
+clamp_radius = 0.08
+airfoil = { name = "NACA 0012", table = "naca0012_c81", shape = "naca0012", te_thickness = 0.003 }
+
+[[rotor]]
+name = "tail"
+role = "tail"
+radius = 1.295
+blades = 2
+rpm = 1655.0
+chord = 0.213
+root_cutout = 0.2
+twist = 0.0
+hub = "teetering"
+position = [-8.9, 0.35, 0.1]
+axis = [0.0, -1.0, 0.0]
+tail_top_aft = false
+elastic = false
+airfoil = { name = "NACA 0012", table = "naca0012_c81", shape = "naca0012" }
