@@ -298,6 +298,15 @@ thrust axis given for helicopter mode turn forward), and the aircraft its airpla
   25 dB above 10 kHz, and below 250 Hz both have more (10 to 25 dB in the first): how much of that their cameras'
   microphones and mounts make can't be told from the cockpit's. The first glider's whistle, at about 25 Hz per knot
   from 85 kt, is a leak of its own and not in the model.
+- Against a roll in an ASK 21's front cockpit (a video from a camera on the pilot's head; airspeed, load factor and
+  sideslip read off the ASI, the g-meter and the yaw string): the roll is barrelled, from a pull-up at +1.5 to +3.5 g
+  through 0 g at 90 degrees of bank and +1 g inverted to a pull-out at +4.5 g, at 67 to 93 kt. The canopy's hiss from
+  1.6 to 6.3 kHz moves the way the model's does at the same airspeed and load factor, but twice as far, 8 dB against
+  4: in the pull-up it grows by 2 to 3 dB per g, the model's by 0.2; with the yaw string far to one side it falls 2 to
+  4 dB below the model, far to the other 2 to 4 dB above (the model's slip adds half a decibel), and in both the ASI
+  misreads by 10 to 20 kt. The model's hiss hardly depends on where the ear is (0.3 dB over 10 cm). Leaks through the
+  canopy's seals and vents, driven by the lift and the slip, would grow so; so might the camera's microphone, and one
+  recording can't tell them apart. Nothing in it starts or stops with the ailerons, as in the model.
 
 ## Limits
 
