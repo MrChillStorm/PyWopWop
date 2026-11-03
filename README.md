@@ -146,7 +146,7 @@ square root of `surface-positions/speedbrake-pos-norm` and the ailerons' with
 grows to the full-rudder slip's.
 
 The computed stall speed of the ASK 21 at 540 kg is 34.7 kt, the flight manual's 35 kt. In the cockpit the canopy's
-boundary layer dominates: 76 dBA at the stall, 78 at 40 kt, 91 at 150 kt (a study of the K7's cockpit found over 75
+boundary layer dominates: 76 dBA at the stall, 77 at 40 kt, 88 at 150 kt (a study of the K7's cockpit found over 75
 dBA). Toward the stall the wing's root separates from the trailing edge (from 4.3 degrees body angle of attack at
 1 g), its hiss turning to rumble. The canopy's flow stays attached: its boundary layer thickens on the leeward line,
 but the wing's circulation keeps the flow over the canopy speeding up to the wing root, so the cockpit grows quieter
@@ -160,7 +160,7 @@ dB at 5 g. Full aileron adds about 1 dB outside: the roll rate keeps the aileron
 what they add comes mostly from the vortices at their ends. The elevator and rudder span their surfaces and add
 little. A slip turns the flow across the canopy: on the windward side its boundary layer is thin and the flow
 slower, on the leeward side the layer gathers, two to four times thicker, and stays attached on the glass (the
-leeward separation runs below the sills); in the cockpit the hiss grows by about 1 dB, brighter on one side and
+leeward separation runs below the sills); in the cockpit the hiss grows by about half a decibel, brighter on one side and
 duller on the other. Air leaking through the canopy's seals and vents, which a slip's pressure across the cockpit
 drives, is not modelled. Inverted, the cambered wing needs a large negative angle and stalls at 47 kt (35 upright); the canopy
 faces the flow instead of trailing it, its boundary layer thinner and the air over it slower, so its hiss loses
@@ -289,6 +289,15 @@ thrust axis given for helicopter mode turn forward), and the aircraft its airpla
   doors takes 18.3 dB off the whine at 10 kHz while the cabin's own sounds stay put; the model's walls take 18.8 dB.
   The gearbox's tones sit at the planetary mesh's 980 Hz and its harmonics and grow by about 12 dB from flat pitch to
   the hover, as their amplitude with the torque gives.
+- Against ASK 21 cockpits recorded in aerobatics (two videos; their cameras' gain is unknown, so only spectral shapes
+  and growth with airspeed): in the first, its airspeed read off the ASI's needle frame by frame, the canopy's hiss
+  keeps the model's spectrum within 1.5 dB from 315 Hz to 6.3 kHz at 50 to 115 kt (a 30 dB cap on the canopy's
+  transmission loss for leaks had left it flat from 2 kHz up, 6 to 8 dB too bright), and from 400 Hz to 8 kHz it
+  grows as the airspeed to the power 1.8, the model's 2.0. The second, without the first's whistle, keeps the model's
+  shape within 2 dB from 400 Hz to 4 kHz. Above 5 kHz both fall faster than the model, 5 to 10 dB at 8 kHz and 10 to
+  25 dB above 10 kHz, and below 250 Hz both have more (10 to 25 dB in the first): how much of that their cameras'
+  microphones and mounts make can't be told from the cockpit's. The first glider's whistle, at about 25 Hz per knot
+  from 85 kt, is a leak of its own and not in the model.
 
 ## Limits
 

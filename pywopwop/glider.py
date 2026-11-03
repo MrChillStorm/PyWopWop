@@ -730,10 +730,13 @@ def _band_power(fun, lo=BANDS * 2 ** (-1 / 6), hi=BANDS * 2 ** (1 / 6), n=12):
     return out
 
 
-def _mass_law(f, m, leak_db=-30.0):
+def _mass_law(f, m):
+    """The canopy's transmission on power, by the mass law and not capped for leaks: in an ASK 21's front cockpit
+    recorded in aerobatics the hiss keeps falling with it to 6.3 kHz at every speed (a 30 dB cap left it flat from
+    2 kHz up, 6 to 8 dB too bright)."""
     with np.errstate(divide="ignore"):
         tl = np.maximum(20.0 * np.log10(np.maximum(m * f, 1e-9)) - 47.0, 0.0)
-    return np.maximum(10.0 ** (-tl / 10.0), 10.0 ** (leak_db / 10.0))    # on power
+    return 10.0 ** (-tl / 10.0)
 
 
 def spectra(g, cond, listener, inside=False):
