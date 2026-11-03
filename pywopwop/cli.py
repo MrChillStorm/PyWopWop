@@ -81,7 +81,8 @@ def cmd_render(a):
     var = Variability.none() if a.no_variation else Variability(seed=a.seed, variants=a.variants)
     t0 = time.time()
     r = render(ac, _condition(a), obs, rotors=a.rotor, fs=a.fs, duration=a.duration, quality=q, variability=var,
-               with_broadband=not a.no_broadband, cabin=a.cabin if a.cockpit else None,
+               with_broadband=not a.no_broadband,
+               cabin=(ac.cabin if a.cabin is None else a.cabin) if a.cockpit else None, doors_open=a.doors_open,
                aero_opts=_aero_opts(a, q), pitch_headroom=a.headroom, f_highpass=a.highpass,
                environment=a.environment, stems=a.stems)
     x = r.total
@@ -219,11 +220,12 @@ def cmd_engine(a):
     ac = load_aircraft(a.aircraft)
     insts = load_installations(a.aircraft)
     inst = next((x for x in insts if x.name == a.engine), insts[0]) if a.engine else insts[0]
-    o = Observer("cockpit", position=tuple(ac.cockpit)) if a.cockpit else Observer("side", a.az, 0.0, a.dist)
+    o = (Observer("cockpit_open" if a.doors_open else "cockpit", position=tuple(ac.cockpit)) if a.cockpit
+         else Observer("side", a.az, 0.0, a.dist))
     c = EngineCondition(a.ng, lit=not a.cold, starter=a.starter, fuel_pph=a.fuel)
     print(f"{ac.name} {inst.name} engine ({inst.engine.name}): " + engine_state(inst.engine, a.ng, not a.cold, a.fuel).summary())
     t0 = time.time()
-    r = render_engine(inst, c, o, a.fs, a.duration, a.seed, a.environment, hub_height=ac.hub_height_m)
+    r = render_engine(inst, c, o, a.fs, a.duration, a.seed, a.environment, cabin=ac.cabin, hub_height=ac.hub_height_m)
     x = r.total
     out = Path(a.output or f"{Path(a.aircraft).stem}_{inst.name}_ng{a.ng:g}{'_cold' if a.cold else ''}_{o.name}.wav")
     write_wav(out, x, r.fs, a.bits, 10 ** (a.peak / 20.0) / max(np.max(np.abs(x)), 1e-12))
@@ -268,7 +270,9 @@ def main(argv=None):
     s.add_argument("--el", type=float, help="observer elevation, deg (below negative)")
     s.add_argument("--dist", type=float, default=100.0, help="observer distance, m")
     s.add_argument("--cockpit", action="store_true", help="listen from the cockpit (with the cabin wall)")
-    s.add_argument("--cabin", type=float, default=8.0, help="cabin wall surface mass for --cockpit, kg/m^2")
+    s.add_argument("--cabin", type=float, default=None,
+                   help="for --cockpit: a limp wall of this surface mass, kg/m^2 (default: the preset's cabin)")
+    s.add_argument("--doors-open", action="store_true", help="for --cockpit: the cabin's doors open")
     s.add_argument("--rotor", nargs="*", help="only these rotors (names or roles, e.g. main tail)")
     s.add_argument("--duration", type=float, default=15.0, help="loop length, s (rounded to whole revolutions)")
     s.add_argument("--fs", type=float, default=48000.0)
@@ -371,6 +375,7 @@ def main(argv=None):
     s.add_argument("--starter", action="store_true", help="the starter cranking")
     s.add_argument("--fuel", type=float, help="fuel flow, lb/h (default: the operating line; below idle a start's)")
     s.add_argument("--cockpit", action="store_true", help="the pilot's head")
+    s.add_argument("--doors-open", action="store_true", help="with --cockpit: the cabin's doors open")
     s.add_argument("--az", type=float, default=90.0, help="outside: azimuth from the nose, deg (+ right)")
     s.add_argument("--dist", type=float, default=50.0, help="outside: distance on the ground, m")
     s.add_argument("--environment", choices=("free", "ground", "open", "urban"), default="open")

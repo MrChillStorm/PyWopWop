@@ -73,7 +73,6 @@ class BankOptions:
     conditions: list = None
     observers: list = field(default_factory=lambda: ["side", "front_right", "rear", "below"])
     cockpit: bool = True
-    cabin_surface_mass: float = 8.0
     duration: float = 15.0          # s: long enough that the loop point and its repetition go unnoticed
     fs: float = 48000.0
     bits: int = 16
@@ -113,6 +112,8 @@ def _observers(aircraft, c, opts):
         obs.append(o)
     if opts.cockpit:
         obs.append(Observer("cockpit", position=tuple(aircraft.cockpit)))
+        if aircraft.cabin.door_share > 0:
+            obs.append(Observer("cockpit_open", position=tuple(aircraft.cockpit)))     # the cabin doors open
     return obs
 
 
@@ -153,8 +154,9 @@ def make_bank(aircraft, out_dir, opts=None, progress=print):
                              collective_deg=aircraft.main.flat_pitch_deg if c.ground_run else None)
         state = operate(aircraft, fc, AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth))
         for o in _observers(aircraft, c, opts):
-            cabin = opts.cabin_surface_mass if o.name == "cockpit" else None
+            cabin = aircraft.cabin if o.position is not None else None
             r = render(aircraft, fc, o, fs=opts.fs, duration=opts.duration, quality=q, cabin=cabin, state=state,
+                       doors_open=o.name == "cockpit_open",
                        variability=Variability(seed=opts.seed + 7 * ci), pitch_headroom=opts.pitch_headroom,
                        environment=opts.environment)
             renders.append((c, o, r))
@@ -167,7 +169,7 @@ def make_bank(aircraft, out_dir, opts=None, progress=print):
         return ["total"] + [k for k in r.signals if k.startswith("layer/")]
 
     def group(o):
-        return "cockpit" if o.name == "cockpit" else "exterior"
+        return "cockpit" if o.position is not None else "exterior"
     gains = {}
     for g in {group(o) for _, o, _ in renders}:
         peak = max(np.max(np.abs(r.signals[k])) for _, o, r in renders if group(o) == g for k in keys(r))
@@ -258,13 +260,20 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
     tail = next((r for r in rotors.values() if r["role"] == "tail"), None)
     main = next(r for r in rotors.values() if r["role"] != "tail")
 
+    open_view = any(e["observer"] == "cockpit_open" for e in manifest["files"])
+    doors = aircraft.cabin.door_property if open_view else None
+
     def entry(c, view, src, vols):
         if (c.name, view, src) not in have:
             return ""
+        if view.startswith("cockpit") and doors:
+            # the closed and open cockpit's loops are one signal through two walls: faded by the doors' opening
+            d = f"<clip><property>{doors}</property><clipMin>0</clipMin><clipMax>1</clipMax></clip>"
+            vols = vols + [d if view == "cockpit_open" else f"<difference><value>1</value>{d}</difference>"]
         fn = f"{c.name}_{view}_{src}.wav"
         rot = tail if src == "tail" else main
         prop = f"rotors/{'tail' if src == 'tail' else 'main'}/rpm"
-        cond = "<property>sim/current-view/internal</property>" if view == "cockpit" else \
+        cond = "<property>sim/current-view/internal</property>" if view.startswith("cockpit") else \
             "<not><property>sim/current-view/internal</property></not>"
         # a run-up loop is recorded at its own rotor speed and plays from the next lower one's
         ref = rot['nominal_rpm'] * c.rpm_percent / 100.0
@@ -283,7 +292,7 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
         s += "\t\t\t</product></expression></volume>\n"
         s += (f"\t\t\t<pitch><property>{prop}</property><factor>{1.0 / ref:.6g}</factor>"
               f"<min>{min(0.2, lo / ref):.3g}</min><max>{opts.pitch_headroom:g}</max></pitch>\n")
-        if view != "cockpit":
+        if not view.startswith("cockpit"):
             # the distance the loop was recorded at: FlightGear scales it from there
             d = (c.listener_distance_m or 50.0) if c.ground_clearance_m is not None else 100.0
             s += f"\t\t\t<reference-dist>{d:g}</reference-dist>\n\t\t\t<max-dist>4000</max-dist>\n"
@@ -316,7 +325,7 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
     rpm = "rotors/main/rpm"
     nom = main["nominal_rpm"]
 
-    for view in [exterior] + (["cockpit"] if opts.cockpit else []):
+    for view in [exterior] + ((["cockpit"] + (["cockpit_open"] if open_view else [])) if opts.cockpit else []):
         for i, c in enumerate(level):
             vols = []
             if i > 0:

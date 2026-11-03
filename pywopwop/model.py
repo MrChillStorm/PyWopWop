@@ -204,6 +204,47 @@ class Rotor:
 
 
 @dataclass
+class Cabin:
+    """The walls between the outside and the pilot's head, by area: the skin (with its frames and trim) and the
+    windows as panels, each by its surface mass, coincidence frequency and loss factor; leaks; and the doors' opening.
+    A panel's transmission loss is the field-incidence mass law, TL = 20 log10(m f) - 47 dB, below half its
+    coincidence frequency, and Sharp's above it, TL = 20 log10(m f) + 10 log10(2 eta f / (pi f_c)) - 47 dB, joined
+    linearly (in log frequency) between: the dip where the panel's bending waves match the sound's trace on it lets a
+    turbine's whine through far more than the mass law says. The areas' transmission coefficients add (composite
+    transmission): an open door's area passes everything."""
+    surface_mass: float = 8.0           # kg/m^2: skin, frames and trim
+    coincidence_hz: float = None        # the skin's coincidence frequency (None: a limp wall, the mass law alone)
+    loss_factor: float = 0.02
+    window_share: float = 0.0           # windows' share of the walls round the cockpit
+    window_mass: float = 7.0            # kg/m^2
+    window_coincidence_hz: float = 6000.0
+    window_loss_factor: float = 0.03
+    leak: float = 1e-3                  # area share open with the doors shut (seals, gaps): -30 dB
+    door_share: float = 0.0             # area share open with the doors open
+    door_property: str = None           # FlightGear: the doors' opening, 0..1
+
+    @staticmethod
+    def panel_tl(f, m, fc, eta):
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        mass = 20.0 * np.log10(m * f) - 47.0
+        if not fc:
+            return np.maximum(mass, 0.0)
+        sharp = mass + 10.0 * np.log10(2.0 * eta * f / (np.pi * fc))
+        at_half = 20.0 * np.log10(m * 0.5 * fc) - 47.0
+        at_fc = 20.0 * np.log10(m * fc) - 47.0 + 10.0 * np.log10(2.0 * eta / np.pi)
+        u = np.clip(np.log2(f / (0.5 * fc)), 0.0, 1.0)
+        tl = np.where(f < 0.5 * fc, mass, np.where(f < fc, at_half + u * (at_fc - at_half), sharp))
+        return np.maximum(tl, 0.0)
+
+    def tau(self, f, doors_open=False):
+        """the walls' transmission coefficient (power) at the frequencies f"""
+        skin = 10.0 ** (-self.panel_tl(f, self.surface_mass, self.coincidence_hz, self.loss_factor) / 10.0)
+        win = 10.0 ** (-self.panel_tl(f, self.window_mass, self.window_coincidence_hz, self.window_loss_factor) / 10.0)
+        opening = self.leak + (self.door_share if doors_open else 0.0)
+        return (1.0 - self.window_share - opening) * skin + self.window_share * win + opening
+
+
+@dataclass
 class Aircraft:
     name: str = "aircraft"
     mass_kg: float = 2500.0
@@ -219,9 +260,11 @@ class Aircraft:
     airplane_trim: list = None
     airplane_rpm: float = None
     windscreen_m: float = None      # the windscreen's distance aft of the nose (m): the cockpit's wind (wind.py)
+    cabin: Cabin = None             # the cockpit's walls (default: a limp 8 kg/m^2 wall with -30 dB of leaks)
 
     def __post_init__(self):
         self.rotors = [r if isinstance(r, Rotor) else Rotor(**r) for r in self.rotors]
+        self.cabin = Cabin(**self.cabin) if isinstance(self.cabin, dict) else (self.cabin or Cabin())
 
     @property
     def main(self):
@@ -314,6 +357,8 @@ def load_aircraft(name_or_path):
     with open(p, "rb") as f:
         d = tomllib.load(f)
     ac = dict(d.get("aircraft", {}))
+    if "cabin" in d:
+        ac["cabin"] = dict(d["cabin"])
     rotors = []
     for r in d.get("rotor", []):
         r = dict(r)

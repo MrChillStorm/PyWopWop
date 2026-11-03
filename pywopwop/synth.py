@@ -434,14 +434,13 @@ def propagate_static(x, fs, distance, T=288.15, rh=0.7, p=101325.0):
     return _irfft(X * g, len(x))
 
 
-def cabin_filter(x, fs, surface_mass=8.0, leak_db=-30.0):
-    """Sound through a cabin wall by the mass law (TL = 20 log10(m f) - 47 dB), with a leakage floor."""
+def cabin_filter(x, fs, cabin=8.0, doors_open=False):
+    """Sound through the cabin's walls (a model.Cabin, or a limp wall's surface mass in kg/m^2)."""
+    from .model import Cabin
+    cabin = cabin if isinstance(cabin, Cabin) else Cabin(surface_mass=float(cabin))
     X = _rfft(x)
     f = np.fft.rfftfreq(len(x), 1.0 / fs)
-    with np.errstate(divide="ignore"):
-        tl = np.maximum(20.0 * np.log10(np.maximum(surface_mass * f, 1e-9)) - 47.0, 0.0)
-    g = np.maximum(10.0 ** (-tl / 20.0), 10.0 ** (leak_db / 20.0))
-    return _irfft(X * g, len(x))
+    return _irfft(X * np.sqrt(cabin.tau(f, doors_open)), len(x))
 
 
 def highpass(x, fs, f_hp):
@@ -464,7 +463,7 @@ def observer_position(state, observer):
 
 
 def render(aircraft, condition, observer, rotors=None, fs=48000.0, duration=15.0, quality="normal",
-           variability=None, with_broadband=True, broadband_opts=None, cabin=None, f_highpass=25.0,
+           variability=None, with_broadband=True, broadband_opts=None, cabin=None, doors_open=False, f_highpass=25.0,
            aero_opts=None, state=None, pitch_headroom=1.25, environment="open", stems=False):
     """A seamless loop of the aircraft's rotors in a flight condition at an observer riding with it. Returns the
     total and the layers (rotor, slap, swish, tail); with stems, also every rotor and component. environment: the
@@ -496,7 +495,7 @@ def render(aircraft, condition, observer, rotors=None, fs=48000.0, duration=15.0
             if observer.position is None:
                 x = apply_environment(x, fs, -pos[2], dist, env)
         if cabin:
-            x = cabin_filter(x, fs, cabin)
+            x = cabin_filter(x, fs, cabin, doors_open)
         sig[k] = highpass(x, fs, f_highpass)
     sig["total"] = sum(v for k, v in sig.items() if k.startswith("layer/"))
     meta = dict(aircraft=aircraft.name, airspeed_kt=condition.airspeed_kt, climb_fpm=condition.climb_fpm,

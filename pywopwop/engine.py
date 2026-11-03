@@ -46,7 +46,7 @@ import scipy.fft as sfft
 from .atmosphere import Atmosphere, GAMMA, R_AIR
 from .bpm import third_octave_bands
 from .model import PRESET_DIR, Observer
-from .synth import (Render, Variability, _slow_noise, _warp, a_weighted_ms, cabin_filter, highpass, loop_length,
+from .synth import (Render, Variability, _slow_noise, _warp, a_weighted_ms, highpass, loop_length,
                     scintillate, write_wav)
 
 CP_AIR, CP_GAS, GAMMA_GAS = 1005.0, 1150.0, 1.33
@@ -101,7 +101,11 @@ class Engine:
         self.work_exponent = np.log(dt(self.pressure_ratio) / dt(pr_lo)) / np.log(self.design_ng / n_lo)
         self.dt_design = dt(self.pressure_ratio)
         c = self.compressor
-        self.stage1_share = (288.15 * (c["stage_pressure_ratio"] ** k - 1.0) / c["stage_efficiency"]) / self.dt_design
+        dt1 = 288.15 * (c["stage_pressure_ratio"] ** k - 1.0) / c["stage_efficiency"]
+        self.stage1_share = dt1 / self.dt_design
+        c2 = c.get("stage2")
+        self.stage2_share = ((288.15 + dt1) * (c2["stage_pressure_ratio"] ** k - 1.0) / c2["stage_efficiency"]
+                             / self.dt_design) if c2 else 0.0
         # the turbines' flow constant (ellipse law) at the design point: its heat release and the published T45 set
         # the turbine inlet temperature and the air flow
         T3 = 288.15 + self.dt_design
@@ -284,22 +288,20 @@ _CT = dict(mt=(1.135, 1.135, 1.413), sl1=(5.9036, 5.54769, 2.43439), sl2=(-0.632
            y3=(-4.51545, -30.103, -27.0927), y4=(9.0309, 30.103, 45.1545))
 
 
-def compressor_noise(e, s, theta, harmonics=6):
-    """the first compressor stage's sound radiated from the inlet, at theta (deg from the inlet's axis), 1 m"""
-    c = e.compressor
+def _heidmann(c, dT, W, m_t, m_rel, m_d, f_shaft, theta, harmonics=6, buzz=True):
+    """one compressor stage (c: its preset table) by Heidmann's method, small-engine revision, radiated from the
+    inlet at theta (deg from its axis), 1 m: temperature rise dT (K), air flow W (kg/s), tip Mach numbers
+    (tangential, relative, the relative at design)"""
     out = Source()
-    if s.ng <= 0 or s.W <= 0:
+    if dT <= 0 or W <= 0:
         return out
     B, V = c["rotor_blades"], c["stator_vanes"]
-    f_shaft = e.ng_rpm * s.ng / 100.0 / 60.0
     bpf = B * f_shaft
-    d = engine_state(e, e.design_ng)
-    Md = d.m_rel
-    Mr = s.m_rel
+    Mr = m_rel
     rss = c["rotor_stator_spacing"]
     igv = c.get("inlet_guide_vanes", False)
-    base = 10.0 * np.log10((s.dT1 * 1.8) ** 2 * s.W / LB)
-    md = 20.0 * np.log10(max(Md, 1.0))
+    base = 10.0 * np.log10((dT * 1.8) ** 2 * W / LB)
+    md = 20.0 * np.log10(max(m_d, 1.0))
     # broadband
     f1 = 55.5 + md - (20.0 * np.log10(Mr / 0.9) if Mr > 0.9 else 0.0)
     f2 = -5.0 * np.log10(min(rss, 100.0) / 300.0)           # the inlet's distortion caps the spacing's effect
@@ -311,9 +313,9 @@ def compressor_noise(e, s, theta, harmonics=6):
     if Mr <= 0.72:
         f1 = 54.5 + md
     else:
-        f1 = min(54.5 + md + 50.0 * np.log10(Mr / 0.72), 53.5 + 80.0 * np.log10(max(Md, 1.0) / Mr))
+        f1 = min(54.5 + md + 50.0 * np.log10(Mr / 0.72), 53.5 + 80.0 * np.log10(max(m_d, 1.0) / Mr))
     tl = base + f1 - 10.0 * np.log10(min(rss, 100.0) / 300.0) + np.interp(theta, _TH, _F3TI)
-    cut = abs(s.m_tip / (1.0 - V / B)) < 1.05 and s.m_tip < 1.0
+    cut = abs(m_t / (1.0 - V / B)) < 1.05 and m_t < 1.0
     for h in range(1, harmonics + 1):
         if h == 1:
             fall = 8.0 if cut else 0.0
@@ -324,7 +326,7 @@ def compressor_noise(e, s, theta, harmonics=6):
         msp = 10.0 ** (0.1 * (tl - fall)) + 10.0 ** (0.1 * tl - h + 1)
         out.tones.append((h * bpf, P_REF ** 2 * msp))
     # combination tones (buzz-saw): band levels around 1/2, 1/4, 1/8 BPF, carried by the shaft's orders in each band
-    if Mr >= 1.0:
+    if buzz and Mr >= 1.0:
         ct = np.zeros(len(BANDS))
         lvl = base + np.interp(theta, _TH, _F2CT) - (5.0 if igv else 0.0)
         for K in range(3):
@@ -340,6 +342,48 @@ def compressor_noise(e, s, theta, harmonics=6):
             for k in orders:
                 out.tones.append((k * f_shaft, P_REF ** 2 * ct[b] / len(orders)))
     return out
+
+
+def _stage2(e, s, atm):
+    """the second stage's temperature rise, tip Mach numbers (tangential, relative) and air flow at state s"""
+    c2 = e.compressor["stage2"]
+    dT = s.dT1 / e.stage1_share * e.stage2_share
+    rt = 0.5 * c2["tip_diameter"]
+    m_t = e.ng_rpm * s.ng / 100.0 * 2.0 * np.pi / 60.0 * rt / atm.c
+    rho = atm.rho * (1.0 + s.dT1 / atm.T) ** (1.0 / (GAMMA - 1.0))       # behind the first stage
+    m_x = s.W / (rho * np.pi * rt ** 2 * (1.0 - c2["hub_tip_ratio"] ** 2) * atm.c)
+    return dT, m_t, float(np.hypot(m_t, m_x))
+
+
+def compressor_noise(e, s, theta, harmonics=6, atm=None):
+    """the compressor's sound radiated from the inlet, at theta (deg from the inlet's axis), 1 m: the first stage,
+    and the second heard through it (its preset's through_stage1_db)"""
+    atm = atm or Atmosphere(0.0)
+    if s.ng <= 0 or s.W <= 0:
+        return Source()
+    f_shaft = e.ng_rpm * s.ng / 100.0 / 60.0
+    d = engine_state(e, e.design_ng)
+    out = _heidmann(e.compressor, s.dT1, s.W, s.m_tip, s.m_rel, d.m_rel, f_shaft, theta, harmonics)
+    _low_speed(out, e.compressor, s.ng)
+    c2 = e.compressor.get("stage2")
+    if c2:
+        dT, m_t, m_r = _stage2(e, s, atm)
+        m_d = _stage2(e, d, atm)[2]
+        g = 10.0 ** (0.1 * c2.get("through_stage1_db", 0.0))
+        two = _heidmann(dict(c2, inlet_guide_vanes=False), dT, s.W, m_t, m_r, m_d, f_shaft, theta, harmonics, False)
+        two.bands = two.bands * g
+        two.tones = [(f, m * g) for f, m in two.tones]
+        _low_speed(two, c2, s.ng)
+        out += two
+    return out
+
+
+def _low_speed(src, c, ng):
+    """a stage's measured low-speed correction to its tones (its preset's low_speed_tone_db: [[Ng %, dB], ...])"""
+    t = c.get("low_speed_tone_db")
+    if t:
+        g = 10.0 ** (0.1 * _tab(t, ng))
+        src.tones = [(f, m * g) for f, m in src.tones]
 
 
 _D_COMB = np.array([-0.85, -0.8, -0.75, -0.7, -0.65, -0.6, -0.53, -0.46, -0.39, -0.16, 0.08, 0.31, 0.5, 0.35, 0.12,
@@ -441,6 +485,12 @@ def starter_noise(e, ng, atm=None):
     work = 0.8 * (1.0 - st["supply_pressure_ratio"] ** -k)
     out = _turbine(work, np.pi * st["tip_diameter"] * n_d, st["inlet_area"], st["rotor_blades"] * n, 90.0, atm,
                    directional=False)
+    m = st.get("cowl_surface_mass")
+    if m:
+        # it sits inside the engine's cowling: its turbine heard through the cowl (mass law), its exhaust ducted out
+        tau = lambda f: np.clip(10.0 ** (-(20.0 * np.log10(m * np.maximum(f, 1.0)) - 47.0) / 10.0), 0.0, 1.0)
+        out.bands = out.bands * tau(BANDS)
+        out.tones = [(f, p * float(tau(f))) for f, p in out.tones]
     # its exhaust: the expanded air dumped overboard
     T = st["supply_temperature_k"] * (1.0 - work)
     rho = atm.p / (R_AIR * T)
@@ -462,7 +512,7 @@ def layer_sources(inst, s, listener, starter=False, np_pct=100.0, atm=None):
     th_ex = 180.0 - _deg(np.asarray(inst.exhaust_axis, float), X - exh)
     core = combustion_noise(e, s, th_ex, atm)
     core += jet_noise(s.v_jet, s.rho_jet, e.exhaust["area"], atm) if s.lit else Source()
-    out = dict(compressor=(inlet, compressor_noise(e, s, th_in)), core=(exh, core),
+    out = dict(compressor=(inlet, compressor_noise(e, s, th_in, atm=atm)), core=(exh, core),
                turbine=(exh, turbine_noise(e, s, th_ex, np_pct, atm)))
     if starter:
         out["starter"] = (inlet, starter_noise(e, s.ng, atm))
@@ -504,14 +554,13 @@ def _spectrum(src, L, fs, rng, f_lim, haze=0.004, coherent=0.6):
     return X * lim
 
 
-def _path_gain(f, r, height_above, env, atm, cabin):
-    """spreading from 1 m, air absorption, the ground's reflection (outside), the cabin's wall (inside)"""
+def _path_gain(f, r, height_above, env, atm, cabin, doors_open=False):
+    """spreading from 1 m, air absorption, the ground's reflection (outside), the cabin's walls (inside: a
+    model.Cabin)"""
     from .environment import ground_gain
     g = np.exp(-atm.absorption(np.maximum(f, 1.0)) * r / 8.686) / max(r, 0.1) + 0j
-    if cabin:
-        with np.errstate(divide="ignore"):
-            tl = np.maximum(20.0 * np.log10(np.maximum(cabin * f, 1e-9)) - 47.0, 0.0)
-        g = g * np.maximum(10.0 ** (-tl / 20.0), 10.0 ** (-30.0 / 20.0))
+    if cabin is not None:
+        g = g * np.sqrt(cabin.tau(f, doors_open))
     elif env is not None:
         g = g * ground_gain(f, height_above, r, env)
     return g
@@ -526,21 +575,16 @@ class EngineCondition:
     np_pct: float = 100.0
 
 
-SPEED_WANDER = dict(compressor=0.001, starter=0.002, turbine=0.002, core=0.0)
+SPEED_WANDER = dict(compressor=0.001, starter=0.002, turbine=0.002, core=0.0, apu=0.001, gearbox=0.002)
 
 
-def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, environment="open", cabin=8.0,
-                  pitch_headroom=1.3, f_highpass=25.0, atm=None, hub_height=3.6):
-    """A seamless loop of one engine at a listener riding with the aircraft (an Observer: its position, aircraft
-    frame, or for the outside a horizontal distance at an azimuth, on the ground beside the aircraft standing on its
-    gear). Returns a Render with the layers and their total."""
+def _render_sources(srcs, observer, X, fs, duration, seed, environment, cabin, pitch_headroom, f_highpass, atm):
+    """loops of the sources ({layer: (position, Source at 1 m)}) at the listener X (aircraft frame): spreading,
+    absorption, outside the ground and turbulent air, inside the cabin's walls (doors open for 'cockpit_open')"""
     from .environment import Environment
-    atm = atm or Atmosphere(0.0)
-    e = inst.engine
-    s = engine_state(e, cond.ng, cond.lit, cond.fuel_pph, atm=atm)
+    from .model import Cabin
+    cabin = cabin or Cabin()
     inside = observer.position is not None
-    X = np.asarray(observer.position if inside else _ground_listener(observer, hub_height), float)
-    srcs = layer_sources(inst, s, X, cond.starter, cond.np_pct, atm)
     L, _ = loop_length(1.0, fs, duration)
     f_lim = 0.5 * fs / pitch_headroom
     k = np.fft.rfftfreq(L, 1.0 / fs)
@@ -552,8 +596,12 @@ def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, envir
         if src.total() <= 0:
             continue
         lv[name] = round(_db(src.total()), 1)
-        r = float(np.linalg.norm(X - pos))
-        G = _path_gain(k, r, pos[2] - X[2] if not inside else 0.0, env, atm, cabin if inside else None)
+        if pos is None:                     # given at the listener
+            r, G = 0.0, 1.0
+        else:
+            r = float(np.linalg.norm(X - pos))
+            G = _path_gain(k, r, pos[2] - X[2] if not inside else 0.0, env, atm, cabin if inside else None,
+                           observer.name == "cockpit_open")
         x = sfft.irfft(_spectrum(src, L, fs, rng, f_lim) * G, L, workers=-1)
         if SPEED_WANDER[name] > 0:
             d = SPEED_WANDER[name] * _slow_noise(rng, L, fs, 0.3)[0]
@@ -561,14 +609,132 @@ def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, envir
             x = _warp(x, w - w.mean(), fs)
         if name == "core":
             x = x * np.maximum(1.0 + 0.15 * _slow_noise(rng, L, fs, 3.0)[0], 0.3)
-        if not inside:
+        if not inside and r > 0:
             x = scintillate(x, fs, r, var, rng, {})
         sig[f"layer/{name}"] = highpass(x, fs, f_highpass)
     sig["total"] = sum(sig.values()) if sig else np.zeros(L)
+    return sig, lv
+
+
+def _listener(observer, hub_height):
+    return np.asarray(observer.position if observer.position is not None
+                      else _ground_listener(observer, hub_height), float)
+
+
+def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, environment="open", cabin=None,
+                  pitch_headroom=1.3, f_highpass=25.0, atm=None, hub_height=3.6):
+    """A seamless loop of one engine at a listener riding with the aircraft (an Observer: its position, aircraft
+    frame, or for the outside a horizontal distance at an azimuth, on the ground beside the aircraft standing on its
+    gear). Inside, the cabin's walls (a model.Cabin; default a limp 8 kg/m^2 wall), with its doors open if the
+    observer is 'cockpit_open'. Returns a Render with the layers and their total."""
+    atm = atm or Atmosphere(0.0)
+    e = inst.engine
+    s = engine_state(e, cond.ng, cond.lit, cond.fuel_pph, atm=atm)
+    X = _listener(observer, hub_height)
+    srcs = layer_sources(inst, s, X, cond.starter, cond.np_pct, atm)
+    sig, lv = _render_sources(srcs, observer, X, fs, duration, seed, environment, cabin, pitch_headroom, f_highpass,
+                              atm)
     meta = dict(engine=e.name, installation=inst.name, ng=cond.ng, lit=cond.lit, starter=cond.starter,
                 fuel_pph=round(s.fuel_pph, 1), power_shp=round(s.power_w / 745.7, 1), tgt_c=round(s.T45 - 273.15, 1),
                 source_db_1m=lv, observer=observer.name)
     return Render(fs, sig, [], meta)
+
+
+# ---------------------------------------------------------------- the APU
+
+@dataclass
+class APU:
+    """An auxiliary power unit by its recorded signature (presets/apu/<type>.toml): its shaft's tones by order and
+    its broadband third octaves at full speed (dB re 20 uPa at 1 m), both moving with its speed, their power with
+    its speed to the speed_exponent."""
+    name: str
+    shaft_hz: float
+    tones: list
+    bands: list
+    speed_exponent: float = 5.0
+    position: tuple = (0.0, 0.0, 0.0)
+    property: str = "/engines/apu/n1-pct"
+
+
+def load_apu(aircraft_name_or_path):
+    """the aircraft preset's APU ([apu]: type, position, property), or None"""
+    p = Path(aircraft_name_or_path)
+    if not p.suffix:
+        p = PRESET_DIR / f"{aircraft_name_or_path}.toml"
+    with open(p, "rb") as f:
+        a = tomllib.load(f).get("apu")
+    if not a:
+        return None
+    with open(PRESET_DIR / "apu" / f"{a['type']}.toml", "rb") as f:
+        d = tomllib.load(f)["apu"]
+    return APU(**d, position=tuple(a.get("position", (0.0, 0.0, 0.0))),
+               property=a.get("property", "/engines/apu/n1-pct"))
+
+
+def apu_source(apu, n_pct):
+    """the APU at n_pct of its speed, 1 m, nondirectional"""
+    out = Source()
+    k = n_pct / 100.0
+    if k <= 0:
+        return out
+    g = k ** apu.speed_exponent
+    b = np.asarray(apu.bands, float)
+    lvl = np.interp(np.log(BANDS / k), np.log(b[:, 0]), b[:, 1], left=-200.0, right=-200.0)
+    out.bands = P_REF ** 2 * 10.0 ** (0.1 * lvl) * g
+    out.tones = [(order * apu.shaft_hz * k, P_REF ** 2 * 10.0 ** (0.1 * L) * g) for order, L in apu.tones]
+    return out
+
+
+def render_apu(apu, n_pct, observer, fs=48000.0, duration=15.0, seed=1, environment="open", cabin=None,
+               pitch_headroom=1.3, f_highpass=25.0, atm=None, hub_height=3.6):
+    """A seamless loop of the APU at n_pct of its speed at a listener riding with the aircraft (as render_engine)"""
+    atm = atm or Atmosphere(0.0)
+    X = _listener(observer, hub_height)
+    sig, lv = _render_sources({"apu": (np.asarray(apu.position, float), apu_source(apu, n_pct))}, observer, X, fs,
+                              duration, seed, environment, cabin, pitch_headroom, f_highpass, atm)
+    return Render(fs, sig, [], dict(apu=apu.name, n_pct=n_pct, source_db_1m=lv, observer=observer.name))
+
+
+# ---------------------------------------------------------------- the main transmission
+
+@dataclass
+class Transmission:
+    """The main gearbox's mesh tones as heard inside (an aircraft preset's [transmission]): [Hz at 100 % rotor
+    speed, dB at the pilot at the reference torque, sideband spacing Hz], their amplitude with the torque."""
+    tones: list
+    reference_torque_pct: float = 75.0
+    rpm_property: str = "rotors/main/rpm"
+    torque_properties: list = field(default_factory=list)
+
+
+def load_transmission(aircraft_name_or_path):
+    p = Path(aircraft_name_or_path)
+    if not p.suffix:
+        p = PRESET_DIR / f"{aircraft_name_or_path}.toml"
+    with open(p, "rb") as f:
+        t = tomllib.load(f).get("transmission")
+    return Transmission(**t) if t else None
+
+
+def gearbox_source(tr, rotor_pct=100.0, torque_pct=100.0):
+    """the mesh tones at the pilot: the fundamental's power and its first two sidebands' (planet passing or shaft
+    rate, 10 and 18 dB down: the meshes' load varies as they turn), amplitude with the torque"""
+    out = Source()
+    k = rotor_pct / 100.0
+    g = (torque_pct / tr.reference_torque_pct) ** 2
+    for f, L, side in tr.tones:
+        p = P_REF ** 2 * 10.0 ** (0.1 * L) * g
+        out.tones.append((f * k, p))
+        for j, d in ((1, -10.0), (2, -18.0)):
+            out.tones += [(f * k + j * side * k, p * 10.0 ** (0.1 * d)), (f * k - j * side * k, p * 10.0 ** (0.1 * d))]
+    return out
+
+
+def render_gearbox(tr, observer, fs=48000.0, duration=15.0, seed=1, torque_pct=100.0, f_highpass=25.0):
+    """a seamless loop of the gearbox's tones at the pilot (the levels are the pilot's: no path)"""
+    sig, lv = _render_sources({"gearbox": (None, gearbox_source(tr, 100.0, torque_pct))}, observer, None, fs,
+                              duration, seed, "free", None, 1.3, f_highpass, Atmosphere(0.0))
+    return Render(fs, sig, [], dict(torque_pct=torque_pct, source_db=lv, observer=observer.name))
 
 
 def _ground_listener(o, hub_height, ear=1.7):
@@ -582,10 +748,14 @@ def _ground_listener(o, hub_height, ear=1.7):
 LIT_NG = (20.0, 25.0, 30.0, 37.0, 45.0, 55.0, 65.0, 72.0, 80.0, 87.5, 92.0, 96.0, 100.0, 104.0)
 COLD_NG = (3.0, 5.0, 8.0, 12.0, 17.0, 24.0, 30.0, 37.0, 45.0, 55.0, 65.0, 80.0, 100.0)
 STARTER_NG = (3.0, 5.0, 8.0, 12.0, 17.0, 24.0, 30.0, 37.0, 45.0, 55.0, 62.0)
+APU_PCT = (5.0, 10.0, 20.0, 35.0, 50.0, 65.0, 80.0, 90.0, 100.0)
 
 
 def _views(aircraft, distance):
-    return [Observer("cockpit", position=tuple(aircraft.cockpit)), Observer("side", 90.0, 0.0, distance)]
+    v = [Observer("cockpit", position=tuple(aircraft.cockpit))]
+    if aircraft.cabin.door_share > 0:
+        v.append(Observer("cockpit_open", position=tuple(aircraft.cockpit)))
+    return v + [Observer("side", 90.0, 0.0, distance)]
 
 
 def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration=15.0, bits=16, peak_dbfs=-1.0,
@@ -611,8 +781,8 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
             k = grid.index(c.ng)
             ratio = max(grid[k + 1] / grid[k] if k + 1 < len(grid) else 1.0, 1.3)
             for o in _views(ac, distance):
-                r = render_engine(inst, c, o, fs, duration, seed + 1000 * i + 7 * j, environment, pitch_headroom=ratio,
-                                  hub_height=ac.hub_height_m)
+                r = render_engine(inst, c, o, fs, duration, seed + 1000 * i + 7 * j, environment, cabin=ac.cabin,
+                                  pitch_headroom=ratio, hub_height=ac.hub_height_m)
                 keep = ["layer/starter"] if kind == "starter" else [x for x in r.signals if x.startswith("layer/")
                                                                      and x != "layer/starter"]
                 r.signals = {x: r.signals[x] for x in keep if x in r.signals}
@@ -620,6 +790,29 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
                 lv = r.levels()
                 progress(f"  {inst.name:6s} {kind:7s} Ng {c.ng:5.1f} {o.name:8s} "
                          + "  ".join(f"{x.split('/')[-1]} {v['dba']:5.1f}" for x, v in lv.items()) + " dBA")
+
+    apu = load_apu(aircraft_name)
+    if apu:
+        class _A:
+            name = "apu"
+        for j, n in enumerate(APU_PCT):
+            ratio = max(APU_PCT[j + 1] / n if j + 1 < len(APU_PCT) else 1.0, 1.3)
+            for o in _views(ac, distance):
+                r = render_apu(apu, n, o, fs, duration, seed + 5000 + 7 * j, environment, cabin=ac.cabin,
+                               pitch_headroom=ratio, hub_height=ac.hub_height_m)
+                r.signals = {"layer/apu": r.signals["layer/apu"]}
+                renders.append((_A, "run", EngineCondition(n, lit=False), o, r))
+                progress(f"  apu    {n:5.1f} % {o.name:12s} {r.levels()['layer/apu']['dba']:5.1f} dBA")
+
+    tr = load_transmission(aircraft_name)
+    if tr:
+        class _G:
+            name = "gearbox"
+        o = Observer("cockpit", position=tuple(ac.cockpit))
+        r = render_gearbox(tr, o, fs, duration, seed + 6000)
+        r.signals = {"layer/gearbox": r.signals["layer/gearbox"]}
+        renders.append((_G, "run", EngineCondition(100.0, lit=False), o, r))
+        progress(f"  gearbox 100 % torque cockpit {r.levels()['layer/gearbox']['dba']:5.1f} dBA")
 
     def group(o):
         return "cockpit" if o.position is not None else "exterior"
@@ -647,7 +840,7 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
             fn = f"{inst.name}_{layer}_{kind}_{c.ng:g}_{o.name}.wav"
             write_wav(out / fn, sig, r.fs, bits, gains[group(o)], seed=abs(hash(fn)) % 2 ** 32)
             files.append(dict(file=fn, engine=inst.name, layer=layer, state=kind, ng=c.ng,
-                              fuel_pph=r.meta["fuel_pph"], observer=o.name, oaspl_db=round(lv[x]["oaspl"], 2),
+                              fuel_pph=r.meta.get("fuel_pph", 0.0), observer=o.name, oaspl_db=round(lv[x]["oaspl"], 2),
                               dba=round(lv[x]["dba"], 2)))
     manifest = dict(aircraft=ac.name, generator="pywopwop engines", sample_rate=fs, bits=bits,
                     gain_db={g: round(20.0 * np.log10(v), 3) for g, v in gains.items()},
@@ -656,6 +849,10 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
                                   starter_property=x.starter_property or f"{x.properties}/cranking",
                                   idle_ng=x.engine.idle_ng, lightoff_ng=x.engine.lightoff_ng) for x in insts],
                     lit_ng=list(LIT_NG), cold_ng=list(COLD_NG), starter_ng=list(STARTER_NG),
+                    door_property=ac.cabin.door_property if ac.cabin.door_share > 0 else None,
+                    apu=dict(name=apu.name, property=apu.property, grid=list(APU_PCT)) if apu else None,
+                    gearbox=dict(rpm_property=tr.rpm_property, nominal_rpm=ac.main.rpm,
+                                 torque_properties=tr.torque_properties) if tr else None,
                     note="levels: dB re 20 uPa at the listener before the gain; turbine loops at 100 % Np; "
                          f"outside: on the ground {distance:g} m to the right", files=files)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
@@ -665,61 +862,94 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
 
 def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
     """FlightGear <fx> entries: per engine and layer, the loops cross-faded by equal power over its n1, each pitched
-    by n1 over its own (the turbine's by n2 over 100 %; the core's not: the combustor sets its spectrum). The lit loops while the engine runs, the cold ones while it
-    doesn't, the starter's while it cranks; the core's with the fuel flow over its loop's (combustion noise's
-    amplitude goes with the heat release at a given Ng)."""
+    by n1 over its own (the turbine's by n2 over 100 %; the core's not: the combustor sets its spectrum). The lit
+    loops while the engine runs, the cold ones while it doesn't, the starter's while it cranks; the core's with the
+    fuel flow over its loop's (combustion noise's amplitude goes with the heat release at a given Ng). The APU's by
+    its speed. Inside, the closed and the open cockpit's loops by the doors' opening."""
     from .wind import _e, _v, _ramp_e
     have = {(f["engine"], f["layer"], f["state"], f["ng"], f["observer"]): f for f in manifest["files"]}
     dist = manifest["exterior_distance_m"]
+    views = ["cockpit"] + (["cockpit_open"] if any(f["observer"] == "cockpit_open" for f in manifest["files"])
+                           else []) + ["side"]
+    door = manifest.get("door_property") if "cockpit_open" in views else None
+
+    def doors(view):
+        """the closed and open cockpit's loops are one signal through two walls: faded by the doors' opening"""
+        if not door or not view.startswith("cockpit"):
+            return []
+        d = _e("clip", f"<property>{door}</property>", "<clipMin>0</clipMin><clipMax>1</clipMax>")
+        return [d if view == "cockpit_open" else _e("difference", _v(1.0), d)]
     out = []
+
+    def series(who, layer, state, grid, view, speed, extra, lo0=0.0, pitch="n1", n2=None):
+        """one layer's loops over the speed (an expression, percent): equal-power cross-fades, each pitched by the
+        speed over its own (pitch 'n2': by n2 over 100 %; None: not pitched)"""
+        pts = [n for n in grid if (who, layer, state, n, view) in have]
+        for i, n in enumerate(pts):
+            f = have[(who, layer, state, n, view)]
+            lo = pts[i - 1] if i else lo0
+            w = [_ramp_e(speed, lo, n)]
+            hi = pts[i + 1] if i + 1 < len(pts) else None
+            if hi is not None:
+                w.append(_ramp_e(speed, hi, n))
+            inside = view.startswith("cockpit")
+            vol = _e("product", _e("sqrt", _e("product", *w) if len(w) > 1 else w[0]), *extra(f), *doors(view))
+            cond = [("<property>sim/current-view/internal</property>" if inside
+                     else "<not><property>sim/current-view/internal</property></not>"),
+                    f"<greater-than>{speed}<value>{lo:g}</value></greater-than>"]
+            if hi is not None:
+                cond.append(f"<less-than>{speed}<value>{hi:g}</value></less-than>")
+            if pitch == "n2":
+                pt = f"\t\t\t<pitch>{n2}<factor>0.01</factor><min>0.05</min><max>1.3</max></pitch>\n"
+            elif pitch == "n1":
+                pt = (f"\t\t\t<pitch>{speed}<factor>{1.0 / n:.6g}</factor><min>{lo / n:.4g}</min>"
+                      f"<max>{(hi or 1.3 * n) / n:.4g}</max></pitch>\n")
+            else:
+                pt = ""
+            out.append(f"\t\t<engine>\n\t\t\t<name>pww-{who}-{layer}-{state}-{n:g}-{view}</name>\n"
+                       f"\t\t\t<mode>looped</mode>\n\t\t\t<path>{sound_dir}/{f['file']}</path>\n"
+                       f"\t\t\t<condition><and>{''.join(cond)}</and></condition>\n"
+                       f"\t\t\t<volume><expression>{vol}</expression></volume>\n"
+                       + pt
+                       + ("" if inside else f"\t\t\t<reference-dist>{dist:g}</reference-dist>\n"
+                                            "\t\t\t<max-dist>3000</max-dist>\n")
+                       + "\t\t</engine>\n")
     for eng in manifest["engines"]:
-        P = eng["properties"]
+        P, who = eng["properties"], eng["name"]
         n1, n2 = f"<property>{P}/n1-pct</property>", f"<property>{P}/n2-pct</property>"
         run = f"<property>{P}/running</property>"
         ff = f"<property>{P}/fuel-flow-pph</property>"
         crank = f"<property>{eng['starter_property']}</property>"
-
-        def series(layer, state, grid, view, extra, pitch="n1"):
-            pts = [n for n in grid if (eng["name"], layer, state, n, view) in have]
-            for i, n in enumerate(pts):
-                f = have[(eng["name"], layer, state, n, view)]
-                lo = pts[i - 1] if i else (eng["lightoff_ng"] - 5.0 if state == "lit" else 0.0)
-                w = [_ramp_e(n1, lo, n)]
-                hi = pts[i + 1] if i + 1 < len(pts) else None
-                if hi is not None:
-                    w.append(_ramp_e(n1, hi, n))
-                vol = _e("product", _e("sqrt", _e("product", *w) if len(w) > 1 else w[0]), *extra(f))
-                inside = view == "cockpit"
-                cond = [("<property>sim/current-view/internal</property>" if inside
-                         else "<not><property>sim/current-view/internal</property></not>"),
-                        f"<greater-than>{n1}<value>{lo:g}</value></greater-than>"]
-                if hi is not None:
-                    cond.append(f"<less-than>{n1}<value>{hi:g}</value></less-than>")
-                if pitch == "n2":
-                    pt = f"\t\t\t<pitch>{n2}<factor>0.01</factor><min>0.05</min><max>1.3</max></pitch>\n"
-                elif pitch == "n1":
-                    pt = (f"\t\t\t<pitch>{n1}<factor>{1.0 / n:.6g}</factor><min>{lo / n:.4g}</min>"
-                          f"<max>{(hi or 1.3 * n) / n:.4g}</max></pitch>\n")
-                else:
-                    pt = ""
-                out.append(f"\t\t<engine>\n\t\t\t<name>pww-{eng['name']}-{layer}-{state}-{n:g}-{view}</name>\n"
-                           f"\t\t\t<mode>looped</mode>\n\t\t\t<path>{sound_dir}/{f['file']}</path>\n"
-                           f"\t\t\t<condition><and>{''.join(cond)}</and></condition>\n"
-                           f"\t\t\t<volume><expression>{vol}</expression></volume>\n"
-                           + pt
-                           + ("" if inside else f"\t\t\t<reference-dist>{dist:g}</reference-dist>\n"
-                                                "\t\t\t<max-dist>3000</max-dist>\n")
-                           + "\t\t</engine>\n")
-        for view in ("cockpit", "side"):
+        lit_lo = eng["lightoff_ng"] - 5.0
+        for view in views:
             lit = [run]
             cold = [_e("difference", _v(1.0), run)]
-            series("compressor", "lit", manifest["lit_ng"], view, lambda f: lit)
-            series("compressor", "cold", manifest["cold_ng"], view, lambda f: cold)
-            series("core", "lit", manifest["lit_ng"], view,
+            series(who, "compressor", "lit", manifest["lit_ng"], view, n1, lambda f: lit, lit_lo)
+            series(who, "compressor", "cold", manifest["cold_ng"], view, n1, lambda f: cold)
+            series(who, "core", "lit", manifest["lit_ng"], view, n1,
                    lambda f: lit + [_e("clip", _e("div", ff, _v(max(f["fuel_pph"], 1.0))),
-                                       "<clipMin>0</clipMin><clipMax>3</clipMax>")], pitch=None)
-            series("turbine", "lit", manifest["lit_ng"], view, lambda f: lit, pitch="n2")
-            series("starter", "starter", manifest["starter_ng"], view, lambda f: [crank])
+                                       "<clipMin>0</clipMin><clipMax>3</clipMax>")], lit_lo, pitch=None)
+            series(who, "turbine", "lit", manifest["lit_ng"], view, n1, lambda f: lit, lit_lo, pitch="n2", n2=n2)
+            series(who, "starter", "starter", manifest["starter_ng"], view, n1, lambda f: [crank])
+    gb = manifest.get("gearbox")
+    gfile = have.get(("gearbox", "gearbox", "run", 100.0, "cockpit"))
+    if gb and gfile:
+        # inside (the closed and the open cockpit alike: it is heard through the roof), with the engines' mean torque
+        rpm = f"<property>{gb['rpm_property']}</property>"
+        tq = _e("div", _e("sum", *[f"<property>{p}</property>" for p in gb["torque_properties"]]),
+                _v(100.0 * max(len(gb["torque_properties"]), 1)))
+        vol = _e("clip", tq, "<clipMin>0.03</clipMin><clipMax>1</clipMax>")
+        out.append(f"\t\t<engine>\n\t\t\t<name>pww-gearbox-cockpit</name>\n\t\t\t<mode>looped</mode>\n"
+                   f"\t\t\t<path>{sound_dir}/{gfile['file']}</path>\n"
+                   f"\t\t\t<condition><and><property>sim/current-view/internal</property><greater-than>{rpm}"
+                   f"<value>{0.05 * gb['nominal_rpm']:.3g}</value></greater-than></and></condition>\n"
+                   f"\t\t\t<volume><expression>{_e('product', vol, _e('clip', _e('div', rpm, _v(gb['nominal_rpm'])), '<clipMin>0</clipMin><clipMax>1</clipMax>'))}</expression></volume>\n"
+                   f"\t\t\t<pitch>{rpm}<factor>{1.0 / gb['nominal_rpm']:.6g}</factor><min>0.05</min><max>1.3</max></pitch>\n"
+                   "\t\t</engine>\n")
+    apu = manifest.get("apu")
+    if apu:
+        for view in views:
+            series("apu", "apu", "run", apu["grid"], view, f"<property>{apu['property']}</property>", lambda f: [])
     return ("<?xml version=\"1.0\"?>\n<!-- generated by pywopwop: the engines of " + manifest["aircraft"]
             + "; merge into the aircraft's sound file -->\n<PropertyList>\n\t<fx>\n" + "".join(out)
             + "\t</fx>\n</PropertyList>\n")

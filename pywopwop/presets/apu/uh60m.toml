@@ -1,0 +1,25 @@
+# A UH-60M's auxiliary power unit, by its recorded signature (no published acoustic data found).
+#
+# Shape: a recording of its start through an open door. At full speed its shaft turns at 1,043.6 Hz (62,600 rpm):
+# its 8th order is its whistle; a hum at 0.194 of the shaft (202 Hz: its 400 Hz generator at 12,000 rpm); a broadband
+# exhaust roar peaking near 200 Hz and a hiss near 5-6 kHz and 12.5 kHz; a spectral gap near 10 kHz. The tones'
+# levels are the averages of that recording and of an engine start's (where the hum is 21.5 dB over the 8th order,
+# 18.1 dB in the first). Above 16 kHz the recordings' codec cut them: the top band extrapolated.
+#
+# Level: in the engine start's recording, in the cockpit with the doors open (the same microphone and moment, so the
+# camera's automatic gain cancels), the APU's 8th order lies 8.0 dB under the T700's whine at idle; set against the
+# model's whine there (pywopwop's T700, the doors-open cockpit), it is 100.7 dB at 1 m. Below full speed every
+# component moves with the speed and its power goes as the speed to the 5th (rotating machinery), assumed.
+[apu]
+name = "UH-60M APU (recorded)"
+shaft_hz = 1043.6
+speed_exponent = 5.0
+# [order of the shaft, dB re 20 uPa at 1 m at full speed]
+tones = [[0.194, 120.5], [1.0, 99.3], [7.913, 95.7], [8.006, 100.7]]
+# broadband third octaves at full speed: [Hz, dB re 20 uPa at 1 m]: the two recordings' shapes relative to the 8th order
+# averaged (the APU start's has a 4-7 kHz hiss 6-13 dB over the whistle, the engine start's is flat round it: bleed air,
+# cabin fans, each a part of its own); below 250 Hz the APU start's exhaust roar
+bands = [[25, 98.9], [32, 100.7], [40, 100.7], [50, 101.9], [63, 102.9], [79, 103.7], [100, 104.9], [126, 105.9],
+         [158, 106.7], [200, 107.0], [251, 103.3], [316, 100.7], [398, 98.8], [501, 98.0], [631, 96.5], [794, 96.0],
+         [1000, 96.5], [1259, 97.5], [1585, 99.0], [1995, 100.6], [2512, 101.3], [3162, 100.1], [3981, 103.7],
+         [5012, 106.9], [6310, 107.7], [7943, 101.1], [10000, 92.8], [12589, 104.3], [15849, 94.2], [19953, 86.0]]

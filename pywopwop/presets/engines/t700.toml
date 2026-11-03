@@ -8,10 +8,13 @@
 # 6.5.1 and 6.5.4) as the UH-60 flight model has it, which agrees with GE's within 5 %; the start (TM 1-1520-237-10:
 # starter dropout 52-65 % Ng, idle 63-69 %) and the acceleration fuel schedule as in the flight model.
 #
-# Estimated (no public source found): the first compressor stage's blade and vane counts, diameter and pressure
-# ratio (a transonic stage, as the T700's is, near NASA's Rotor 37: about 1.4 relative tip Mach number at 100 %), the
-# rotor-stator spacing, the power turbine's last stage, the exhaust area and the air turbine starter. The blade counts
-# set the pitch of the whine; change them here if you know them.
+# Measured: the first two compressor stages' blade counts, 20 and 22, from a UH-60M's start recorded in its cockpit
+# (the -701D's; its compressor is the -700's): the whine settles at idle on two tones at exactly 10:11; the second
+# stage's 13.6 dB under the first there.
+#
+# Estimated (no public source found): the vane counts, the stages' diameters and pressure ratios (a transonic first
+# stage, as the T700's is, near NASA's Rotor 37: about 1.4 relative tip Mach number at 100 %), the rotor-stator
+# spacing, the power turbine's last stage, the exhaust area and the air turbine starter.
 [engine]
 name = "T700-GE-700"
 ng_rpm = 44700.0                 # 100 % gas generator speed
@@ -37,14 +40,30 @@ rotor_omega = 27.0               # rad/s at 100 % rotor speed: the torque line's
 start_fuel = [1.35, 60.0]        # acceleration schedule: factor on the steady flow plus lb/h
 
 [compressor]                     # the first axial stage, which the inlet radiates
-rotor_blades = 24                # estimated
-stator_vanes = 36                # estimated: 3 vanes for 2 blades (a CFD model of the stage used that sector)
+rotor_blades = 20                # measured (the whine's frequency at idle)
+stator_vanes = 30                # estimated: 3 vanes for 2 blades (a CFD model of the stage used that sector)
 inlet_guide_vanes = true
 tip_diameter = 0.190             # m, estimated
 hub_tip_ratio = 0.42
 stage_pressure_ratio = 1.60      # at design_ng, estimated
 stage_efficiency = 0.85
 rotor_stator_spacing = 60.0      # percent of the rotor chord, estimated
+# Heidmann's method scales a stage's sound with its work, which is small at low speed; far off its design (the inlet
+# guide vanes closed, the stage at high incidence) the real compressor whines much louder: cranking at 29.6 % Ng the
+# recording has the first stage's tone 8.9 dB under its idle whine, not 30. Added to its tones (dB, linear in Ng,
+# held below the lowest point):
+low_speed_tone_db = [[29.6, 20.9], [67.5, 0.0]]
+
+[compressor.stage2]              # heard through the first stage
+rotor_blades = 22                # measured
+stator_vanes = 33                # estimated
+tip_diameter = 0.180             # m, estimated
+hub_tip_ratio = 0.55
+stage_pressure_ratio = 1.50      # estimated
+stage_efficiency = 0.86
+rotor_stator_spacing = 60.0
+through_stage1_db = -11.9        # its fundamental 13.6 dB under the first stage's at idle, as recorded
+low_speed_tone_db = [[29.6, 35.8], [67.5, 0.0]]     # cranking, the recording has it 2.4 dB over the first stage
 
 [power_turbine]                  # its last stage, which the exhaust radiates
 rotor_blades = 54                # estimated
@@ -63,3 +82,4 @@ air_flow = 0.45                  # kg/s, estimated
 supply_pressure_ratio = 3.4      # estimated
 supply_temperature_k = 480.0     # estimated
 exhaust_area = 0.004             # m^2, estimated
+cowl_surface_mass = 4.0          # kg/m^2: it sits inside the engine's cowling (its exhaust ducted overboard)

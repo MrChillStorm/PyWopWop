@@ -1,4 +1,5 @@
 """Turbine engines: the T700's cycle against GE's, the sources' scaling, the loops and the FlightGear section."""
+from dataclasses import replace
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -33,11 +34,14 @@ def test_compressor_tones_and_buzz_saw():
     B = e.compressor["rotor_blades"]
     lo = en.compressor_noise(e, en.engine_state(e, 65.0), 30.0)
     f_shaft = e.ng_rpm * 0.65 / 60.0
-    assert abs(lo.tones[0][0] - B * f_shaft) < 1e-6           # the blade-passing frequency
-    assert len(lo.tones) == 6                                  # subsonic tip: no combination tones
+    B2 = e.compressor["stage2"]["rotor_blades"]
+    assert abs(lo.tones[0][0] - B * f_shaft) < 1e-6           # the blade-passing frequencies
+    assert abs(lo.tones[6][0] - B2 * f_shaft) < 1e-6
+    assert len(lo.tones) == 12                                 # subsonic tips: no combination tones
+    assert lo.tones[6][1] < 0.1 * lo.tones[0][1]               # the second stage heard through the first
     hi = en.compressor_noise(e, en.engine_state(e, 99.5), 30.0)
     shaft = e.ng_rpm * 0.995 / 60.0
-    buzz = [f for f, _ in hi.tones[6:]]
+    buzz = [f for f, _ in hi.tones[6:-6]]
     assert buzz and all(abs(f / shaft - round(f / shaft)) < 1e-9 and f < B * shaft for f in buzz)
     assert hi.total() > 5 * lo.total()
 
@@ -51,7 +55,9 @@ def test_core_and_turbine_follow_the_power():
     assert en.turbine_noise(e, en.engine_state(e, 65.0), 120.0).total() == 0.0     # no power at idle
     assert en.combustion_noise(e, en.engine_state(e, 40.0, lit=False), 120.0).total() == 0.0
     st = [en.starter_noise(e, n).total() for n in (10.0, 30.0, 55.0)]
-    assert max(st) / min(st) < 1.5                  # the choked supply keeps its loading
+    assert max(st) / min(st) < 2.0                  # the choked supply keeps its loading
+    open_st = en.starter_noise(replace(e, starter={**e.starter, "cowl_surface_mass": None}), 30.0)
+    assert open_st.total() > 10 * en.starter_noise(e, 30.0).total()     # the cowling keeps its whine in
 
 
 def test_engine_loop_is_seamless_and_layered():

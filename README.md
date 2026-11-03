@@ -64,8 +64,9 @@ Media players such as Audacity and VLC restart playback at the loop point, which
 `render` writes one loop; `--hub-agl` puts the main rotor hub that high above the ground (ground effect, by
 Cheeseman and Bennett, and the recirculating downwash's turbulence). Listening positions: `front`, `front_right`, `side`, `rear`, `below`, `left`
 (100 m from the main rotor hub, riding along with the aircraft), `--az --el --dist` for any other, or
-`--cockpit` (the preset's pilot position, heard through the cabin wall). `--stems` also writes every rotor and
-component.
+`--cockpit` (the preset's pilot position, heard through the cabin's walls: the preset's `[cabin]`, skin and windows
+with their coincidence dips, leaks, and with `--doors-open` the doors' opening; without one a limp 8 kg/m^2 wall).
+`--stems` also writes every rotor and component.
 
 `bank` renders every flight condition (hover out of and in ground effect, translational lift, slow and fast
 cruise, climb, the approach descent with blade slap and a steep descent whose wake passes above the disc) at four outside positions and the cockpit. For each it writes the mix and four layers that
@@ -177,12 +178,15 @@ system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turb
 | Part | Model |
 |---|---|
 | Cycle | along the operating line by gas generator speed Ng: the compressor's temperature rise as a power of Ng through its published delivery pressures; the flight model's fuel flow (steady, or a start's acceleration schedule below idle); the turbines passing the flow as Stodola's ellipse law says, calibrated on the published power turbine inlet temperature; the shaft power of the flight model's torque line. Cold (cranked, or spooling down): the same air without fuel |
-| Compressor | the first stage's whine, radiated forward from the inlet: Heidmann's method (NASA TM X-71763) in Hough and Weir's revision for small engines (NASA CR-198300): broadband, the blade-passing tones (cut off at low speed), the inlet distortion's tones, and once the relative tip speed is supersonic the buzz-saw's tones at the shaft's orders |
+| Compressor | the first two stages' whine, radiated forward from the inlet: Heidmann's method (NASA TM X-71763) in Hough and Weir's revision for small engines (NASA CR-198300): broadband, the blade-passing tones (cut off at low speed), the inlet distortion's tones, and once the first stage's relative tip speed is supersonic the buzz-saw's tones at the shaft's orders; the second stage heard through the first |
 | Combustion | GE's (Matta's) core noise method in SAE ARP 876, through the turbines (GE's transmission loss), radiated aft from the exhaust |
 | Power turbine | its last stage by GE's turbine method (FAA-RD-77-4), from the exhaust, where it works at its governed speed |
 | Jet | the exhaust's mixing noise, SAE ARP 876's acoustic power |
-| Starter | the air turbine starter's tones and broadband (GE's method) and its exhaust, while it cranks; the bleed air reaches it choked, so its loading holds as it speeds up |
-| Synthesis | tones scattered into narrow bands by the turbulence in the inlet and the wakes, the shafts' speeds wandering, the combustion's roar swelling and fading; absorption, the ground and the cabin wall as for the rotors |
+| Starter | the air turbine starter while it cranks: its turbine's tones and broadband (GE's method) through the engine's cowling (mass law), its exhaust ducted overboard; the bleed air reaches it choked, so its loading holds as it speeds up |
+| APU | by its recorded signature (`presets/apu/`): its shaft's orders and its broadband spectrum moving with its speed, their power with the speed to the 5th |
+| Transmission | the main gearbox's mesh tones at their tooth counts' frequencies, with harmonics and the planets' or shafts' sidebands, heard inside through the roof (doors open or shut alike), their amplitude with the engines' torque |
+| Cabin | the walls between the outside and the pilot by area: skin and windows as panels with their coincidence dips (Sharp's transmission loss), leaks, and the doors' opening (composite transmission) |
+| Synthesis | tones scattered into narrow bands by the turbulence in the inlet and the wakes, the shafts' speeds wandering, the combustion's roar swelling and fading; absorption and the ground as for the rotors |
 
 ```bash
 pywopwop engine uh60a --ng 65 -o idle.wav
@@ -193,13 +197,17 @@ pywopwop bank uh60a -o out/uh60a --runup --update
 
 The bank has each engine lit at 14 gas generator speeds (20-104 %: below idle a start's acceleration, from idle the
 operating line), cold at 13 (3-100 %: cranking, and spooling down after a shutdown or a flameout) and its starter
-at 11 (3-62 %), in the cockpit and outside (on the ground 50 m to the right). Layers: `compressor`, `core`
-(combustion and jet), `turbine` (the power turbine, at 100 % Np) and `starter`. `--like` takes a rotor bank's gains,
+at 11 (3-62 %), the APU at 9 speeds (5-100 %) and the gearbox at full torque, in the cockpit with the doors shut and
+open and outside (on the ground 50 m to the right). Layers: `compressor`, `core` (combustion and jet), `turbine`
+(the power turbine, at 100 % Np), `starter`, `apu` and `gearbox`. `--like` takes a rotor bank's gains,
 so the engines' loudness against its loops is the physics'. `pywopwop-engines.xml` plays each engine's loops by its
 own properties: cross-faded by equal power on `n1-pct` and pitched by n1 over the loop's own Ng (the turbine's by
 `n2-pct`; the core's not, the combustor sets its spectrum), the lit loops while `running` is set and the cold ones
 while it isn't, the core's with `fuel-flow-pph` over its loop's, the starter's while the starter's property is set
-(the UH-60's `/fdm/jsbsim/eng[n]/starter-on`). Every frequency of a turbomachine scales with its shaft speed, so a
+(the UH-60's `/fdm/jsbsim/eng[n]/starter-on`); the APU's by its speed (a property the aircraft preset names: the
+UH-60 flight model has no APU yet), the gearbox's with the rotor speed and the engines' mean `torque-pct`; inside, the
+shut and the open cockpit's loops by the doors' opening (the UH-60's cabin doors,
+`sim/model/door-positions/passenger/position-norm`). Every frequency of a turbomachine scales with its shaft speed, so a
 start or a shutdown is the loops following the flight model's Ng: a hung start, a hot start, an aborted start or a
 slow rundown sounds as the engine behaves, not as a recording of someone else's start did.
 
@@ -209,26 +217,28 @@ slow rundown sounds as the engine behaves, not as a recording of someone else's 
 
 The T700's cycle follows GE's simulation (NASA TM-105805) at 87.5-99.5 % Ng: delivery pressure within 1.5 %, power
 turbine inlet temperature within 72 K (hotter; GenHel's fuel flow, which the flight model uses, runs about 5 % above
-GE's). Outside, on the ground 50 m to the right: at idle (65 % Ng) one engine makes 68 dBA, a roar round 400 Hz
-with the compressor's whine near 11.6 kHz; both engines at about 80 % Ng (the ground run, the rotor at flat pitch)
-82 dBA, at full power 89 dBA each, the combustion's roar and the power turbine's hiss leading. The rotor's run-up
-at 100 % and flat pitch makes 77 dBA there (83 hovering in ground effect), so on the ground the engines are heard
-over the rotor, and together they reach 85 dBA some 40 m away: measured round a UH-60 on the ground, the 85 dBA
-contour reaches past 100 ft and the crew's positions have 105 dBA or more (Jones et al. 2018; the model gives 100-107
-dBA 6 m from one engine). In the cockpit one engine makes 59 dBA at idle and 72 at full power, against the
-rotor's 75-86. On a start the starter's whine and hiss lead to its cut-out (61-67 dBA in the cockpit), the
-compressor's whine rising through the kilohertz to idle; after a shutdown the whine falls with Ng.
+GE's). Outside, on the ground 50 m to the right, one engine makes 69 dBA at idle, 84 at 87.5 % Ng and 89 at full
+power, the combustion's roar and the power turbine's hiss leading; the APU 83. Measured round a UH-60 on the ground,
+the 85 dBA contour reaches past 100 ft and the crew's positions have 105 dBA or more, the worst near the APU (Jones et
+al. 2018). In the cockpit with the doors shut: on the ground the APU leads at 78-80 dBA (an idling engine 62-66); at
+FLY on the ground the gearbox 87, the engines 72 and the rotor 70; in the hover the gearbox 102 dBA over the rotor's
+85 and the engines' 74, about the 100-105 dBA reported in such cabins. With the doors open the outside sources come in
+about 10 dB more (the APU 90 dBA, an idling engine 81). On a start the APU's whistle and roar come first, then the
+compressor's two-tone whine while the starter cranks, rising through the kilohertz to idle; after a shutdown the whine
+falls with Ng.
 
-Estimated, as no public source gives them: the first compressor stage's blade and vane counts, diameter and pressure
-ratio, the rotor-stator spacing, the power turbine's last stage, the exhaust's area and the air turbine starter
-(`presets/engines/t700.toml` says which; the blade counts set the whine's pitch). GE's and Heidmann's methods are
-empirical, good to about 5 dB in level. Not modelled: the main gearbox (its mesh tones, the UH-60A's 980 Hz
-planetary and 1,628 Hz combining bevel by the tooth counts of NASA's transmission tests, lead a helicopter's cabin
-noise at some 100 dB, but their level would need a measured cabin spectrum), the APU (the flight model has none),
-the igniters, the light-off itself (the heat release's pulse lies near 10 Hz), the gas generator turbine and the
-centrifugal stage (the blade rows around them block them), the power turbine while it runs the rotor up, and the
-structure-borne path. FlightGear clips a sound's volume at one, so the core's loops follow a fuel flow below their
-own but not one above it.
+Measured from recordings (each marked in its preset): the first two compressor stages' blade counts (20 and 22), the
+second stage's level through the first, the whine's level at low speed (Heidmann's method makes it about 20 dB too
+quiet while cranking, far from the compressor's design), the APU's tones, spectrum and level, and the gearbox's tones
+relative to each other (their level from NASA's review: about 103 dB in a cabin of this class). Estimated, as no
+public source gives them: the vane counts, the stages' diameters and pressure ratios, the rotor-stator spacing, the
+power turbine's last stage, the exhaust's area, the air turbine starter, the cabin's walls (`presets/engines/t700.toml`
+and `presets/uh60a.toml` say which). GE's and Heidmann's methods are empirical, good to about 5 dB in level. Not
+modelled: the igniters, the light-off itself (the heat release's pulse lies near 10 Hz), the gas generator turbine and
+the centrifugal stage (the blade rows around them block them), the power turbine while it runs the rotor up, the
+cabin's own systems (fans, avionics), and the airframe's structure-borne paths but the gearbox's. FlightGear clips a
+sound's volume at one, so the core's loops follow a fuel flow below their own but not one above it. The UH-60's flight
+model cranks the gas generator to 24 % on the starter; the recorded start lights off from about 30 %.
 
 ## Your own rotor
 
@@ -271,6 +281,12 @@ thrust axis given for helicopter mode turn forward), and the aircraft its airpla
   ANOPP's power form of the same method agree within 0.1 dB at 1 m.
 - Run-up: at flat pitch the rotor makes next to no thrust and its power grows as the cube of its speed; on the
   ground the run-up loops add up to one at any rotor speed, and off it the flight conditions' do.
+- Against UH-60 recordings made in the cabin (videos; their camera's automatic gain cancels in the ratios used): the
+  T700's whine settles at idle on two tones at exactly 10:11, 10.06 and 11.06 kHz, which 20 and 22 blades give at
+  67.5 % Ng, and sits at 13.0 kHz at FLY on the ground and 14.05 kHz in the hover (87 and 94 % Ng). Closing the cabin's
+  doors takes 18.3 dB off the whine at 10 kHz while the cabin's own sounds stay put; the model's walls take 18.8 dB.
+  The gearbox's tones sit at the planetary mesh's 980 Hz and its harmonics and grow by about 12 dB from flat pitch to
+  the hover, as their amplitude with the torque gives.
 
 ## Limits
 

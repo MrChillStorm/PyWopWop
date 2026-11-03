@@ -52,6 +52,21 @@ tail_top_aft = true
 elastic = false
 airfoil = { name = "SC1095", table = "sc1095_genhel", shape = "sc1094r8" }
 
+# The cockpit's walls: skin with frames and trim (about 1 mm aluminium skin: coincidence near 12 kHz) and the
+# windscreens and windows round the cockpit (6 mm transparencies: near 6 kHz); the cockpit opens to the cabin, whose
+# two sliding doors open about a tenth of the walls' area. Estimated from the airframe's build.
+[cabin]
+surface_mass = 8.0
+coincidence_hz = 12000.0
+loss_factor = 0.02
+window_share = 0.35
+window_mass = 7.0
+window_coincidence_hz = 6000.0
+window_loss_factor = 0.03
+leak = 0.001
+door_share = 0.1
+door_property = "sim/model/door-positions/passenger/position-norm"
+
 # Two T700-GE-700 (presets/engines/t700.toml) on the cabin roof either side of and behind the main transmission,
 # inlets forward, exhausts aft and turned 30 deg outboard. Positions estimated from the airframe's layout.
 [[engine]]
@@ -71,3 +86,25 @@ exhaust = [-2.0, -0.80, -1.30]
 exhaust_axis = [-0.866, -0.5, 0.0]
 properties = "/engines/engine[1]"
 starter_property = "/fdm/jsbsim/eng[1]/starter-on"
+
+# The APU (presets/apu/uh60m.toml: a UH-60M's, recorded) at the left rear of the upper deck, estimated. The flight
+# model has none yet: FlightGear plays it by its speed in percent, a property the flight model would provide.
+[apu]
+type = "uh60m"
+position = [-2.6, 0.45, -1.25]
+property = "/engines/apu/n1-pct"
+
+# The main transmission's gear meshes, heard inside through the roof the transmission stands on (not through the
+# walls or the doors). Frequencies at 100 % rotor speed from the tooth counts (NASA TP-2698): the planetary (228-tooth
+# ring, 5 planets: sidebands at the planets' passing, 21.5 Hz) and its harmonics, the combining bevel (17 teeth at
+# 95.83 Hz), the tail take-off bevel (116 at 20.11 Hz), the input bevels (22 at 348.5 Hz). Levels at the pilot at 75 %
+# torque, a hover: the planetary's 100 dB from the cabin levels NASA's review of rotorcraft cabin noise gives military
+# helicopters of this weight (peak gear tones 98-110 dB), the others relative to it as a UH-60 cabin recording shows
+# them; their amplitude goes with the torque (the recording: about 12 dB from flat pitch to the hover).
+[transmission]
+reference_torque_pct = 75.0
+# [Hz at 100 % rotor speed, dB re 20 uPa at the pilot, sideband spacing Hz]
+tones = [[980.0, 100.0, 21.5], [1960.0, 82.7, 21.5], [2940.0, 73.0, 21.5], [1629.0, 72.7, 95.8],
+         [2333.0, 63.4, 20.1], [7667.0, 45.8, 348.5]]
+rpm_property = "rotors/main/rpm"
+torque_properties = ["/engines/engine[0]/torque-pct", "/engines/engine[1]/torque-pct"]
