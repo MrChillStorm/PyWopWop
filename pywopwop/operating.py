@@ -111,6 +111,24 @@ def operate_airplane(aircraft, cond, opts):
     return OperatingState(aircraft, cond, atm, pitch, pitch, points, vel)
 
 
+def _at_collective(rot, omega, theta75, rho, c, nu, opts, ground_height, w_ref):
+    """A rotor in still air at the collective theta75 (rad, at 0.75 R): the thrust for it by the secant method on the
+    trim's collective"""
+    from dataclasses import replace
+    opts = replace(opts, bvi=False)
+    ts = [0.05 * w_ref, 0.2 * w_ref]
+    sols = [solve_rotor(rot, omega, 0.0, 0.0, t, rho, c, nu, opts, ground_height) for t in ts]
+    for _ in range(12):
+        (t0, t1), (s0, s1) = ts[-2:], sols[-2:]
+        e0, e1 = s0.theta0 - theta75, s1.theta0 - theta75
+        if abs(e1) < np.radians(0.005) or e1 == e0:
+            break
+        t2 = max(t1 - e1 * (t1 - t0) / (e1 - e0), 1e-3 * w_ref)
+        ts.append(t2)
+        sols.append(solve_rotor(rot, omega, 0.0, 0.0, t2, rho, c, nu, opts, ground_height))
+    return sols[-1]
+
+
 def operate(aircraft, condition=None, opts=None, rpm_scale=None):
     """Trim the aircraft in the condition and solve every rotor's loads."""
     cond = condition or FlightCondition()
@@ -133,6 +151,13 @@ def operate(aircraft, condition=None, opts=None, rpm_scale=None):
     main = aircraft.main
     shaft_tilt = np.arctan2(main.axis[0], main.axis[2])
     pitch = tpp_pitch + shaft_tilt
+    ground_run = cond.collective_deg is not None
+    if ground_run:
+        # standing on the gear, level: the tip-path planes along the shafts, the thrust the collective gives
+        if V > 0.1:
+            raise ValueError("a ground run (collective_deg) is in still air")
+        pitch, tpp_pitch = 0.0, -shaft_tilt
+        n = np.asarray(main.axis, float)
     Rbh = _pitch_matrix(pitch)
     U_h = -vel
     aft_h = Rbh @ np.array([-1.0, 0.0, 0.0])
@@ -148,7 +173,12 @@ def operate(aircraft, condition=None, opts=None, rpm_scale=None):
         pt = RotorPoint(rot, omega, V, alpha, thrust, M, Rbh @ np.asarray(rot.position), Uc)
         if cond.ground_height_m is not None:
             pt.ground_height = cond.ground_height_m + pt.hub[2]
-        pt.aero = solve_rotor(rot, omega, V, alpha, thrust, rho, c, nu, opts, pt.ground_height)
+        if ground_run:
+            pt.aero = _at_collective(rot, omega, np.radians(cond.collective_deg), rho, c, nu, opts, pt.ground_height,
+                                     W / len(lifting))
+            pt.thrust = thrust = pt.aero.thrust
+        else:
+            pt.aero = solve_rotor(rot, omega, V, alpha, thrust, rho, c, nu, opts, pt.ground_height)
         if pt.ground_height is not None:
             # the downwash spreads over the ground and comes back up through the rotor: turbulence of an assumed
             # 20 % of the hover induced velocity next to the ground, gone by a hub height of three radii, and

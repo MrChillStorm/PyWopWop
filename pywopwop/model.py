@@ -141,6 +141,7 @@ class Rotor:
     structural_damping: float = 0.01
     torsion_damping: float = 0.1     # structural plus aerodynamic, fraction of critical
     blade_mass_per_length: float = None    # kg/m; default from the Lock number
+    flat_pitch_deg: float = None     # blade pitch at 0.75 R with the collective fully down (ground runs)
 
     def __post_init__(self):
         if isinstance(self.airfoil, dict):
@@ -244,6 +245,8 @@ class FlightCondition:
     ground_height_m: float = None    # main rotor hub above the ground (in ground effect); None: out of it
     nacelle_deg: float = 90.0        # tiltrotors: 90 helicopter mode, 0 airplane mode (the rpm then the aircraft's
                                      # airplane_rpm times rpm_percent)
+    collective_deg: float = None     # on the ground (a run-up): the lifting rotors' pitch at 0.75 R, which sets their
+                                     # thrust; the aircraft level on its gear, the air still
 
     @property
     def V(self):

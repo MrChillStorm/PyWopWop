@@ -26,6 +26,8 @@ class BankCondition:
     ground_clearance_m: float = None    # wheels or skids above the ground: in ground effect, listeners on the ground
     listener_distance_m: float = None   # their horizontal distance (default: the positions' own 100 m)
     nacelle_deg: float = 90.0           # tiltrotors: 0 airplane mode
+    rpm_percent: float = 100.0
+    ground_run: bool = False            # standing on the gear at flat pitch (the rotor's flat_pitch_deg)
 
 
 HELICOPTER_CONDITIONS = [
@@ -49,6 +51,12 @@ MULTIROTOR_CONDITIONS = [
     BankCondition("climb", 10.0, 600.0),
     BankCondition("descent", 15.0, -400.0),
 ]
+
+# the rotors run up on the ground at flat pitch: a start (and a shutdown, run backwards), listeners 50 m away
+RUNUP_RPM = (20.0, 35.0, 50.0, 65.0, 80.0, 90.0, 100.0)
+RUNUP_CONDITIONS = [BankCondition(f"runup_{p:g}", 0.0, 0.0, f"on the ground at flat pitch, rotor at {p:g} %",
+                                  ground_clearance_m=0.0, listener_distance_m=50.0, rpm_percent=p, ground_run=True)
+                    for p in RUNUP_RPM]
 
 # tiltrotors in airplane mode (bank --mode airplane: the aircraft's airplane_trim and airplane_rpm)
 AIRPLANE_CONDITIONS = [
@@ -79,6 +87,7 @@ class BankOptions:
     update: bool = False            # add them to the bank in out_dir at its gains, keeping the rest
     listener_height: float = 1.7
     mode: str = None                # 'airplane': a tiltrotor's airplane mode conditions (default: its helicopter mode)
+    runup: bool = False             # add the ground run-up conditions (with update: render only them)
 
 
 def nominal_rpm(aircraft, rotor, conds):
@@ -118,6 +127,10 @@ def make_bank(aircraft, out_dir, opts=None, progress=print):
         conds = AIRPLANE_CONDITIONS
     elif conds is None:
         conds = MULTIROTOR_CONDITIONS if aircraft.tail is None and len(aircraft.rotors) > 2 else HELICOPTER_CONDITIONS
+    if opts.runup:
+        conds = list(conds) + RUNUP_CONDITIONS
+        if opts.update and opts.only is None:
+            opts.only = [c.name for c in RUNUP_CONDITIONS]
     old = None
     if opts.update:
         mf = out / "manifest.json"
@@ -132,9 +145,12 @@ def make_bank(aircraft, out_dir, opts=None, progress=print):
     state = None
     for c in todo:
         ci = [x.name for x in conds].index(c.name)
+        if c.ground_run and aircraft.main.flat_pitch_deg is None:
+            raise ValueError(f"{aircraft.name}'s main rotor has no flat_pitch_deg (its collective fully down)")
         fc = FlightCondition(airspeed_kt=c.airspeed_kt, climb_fpm=c.climb_fpm, nacelle_deg=c.nacelle_deg,
                              ground_height_m=None if c.ground_clearance_m is None
-                             else aircraft.hub_height_m + c.ground_clearance_m)
+                             else aircraft.hub_height_m + c.ground_clearance_m, rpm_percent=c.rpm_percent,
+                             collective_deg=aircraft.main.flat_pitch_deg if c.ground_run else None)
         state = operate(aircraft, fc, AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth))
         for o in _observers(aircraft, c, opts):
             cabin = opts.cabin_surface_mass if o.name == "cockpit" else None
@@ -227,7 +243,10 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
              f"{aircraft.name}; merge into the aircraft's sound file -->\n<PropertyList>\n\t<fx>\n"]
     level = sorted([c for c in conds if abs(c.climb_fpm) < 1.0 and c.ground_clearance_m is None],
                    key=lambda c: c.airspeed_kt)
-    ige = [c for c in conds if c.ground_clearance_m is not None]
+    runup = sorted([c for c in conds if c.ground_run], key=lambda c: c.rpm_percent)
+    ige = [c for c in conds if c.ground_clearance_m is not None and not c.ground_run]
+    wow = "gear/gear[0]/wow"
+    airborne = (f"<difference><value>1</value><property>{wow}</property></difference>" if runup else None)
     agl = "position/altitude-agl-ft"
     R_ft = aircraft.main.radius / 0.3048
     z_lo, z_hi = 0.5 * R_ft, 1.5 * R_ft          # ground effect fully in below, gone above (hub height ~ agl)
@@ -247,19 +266,27 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
         prop = f"rotors/{'tail' if src == 'tail' else 'main'}/rpm"
         cond = "<property>sim/current-view/internal</property>" if view == "cockpit" else \
             "<not><property>sim/current-view/internal</property></not>"
+        # a run-up loop is recorded at its own rotor speed and plays from the next lower one's
+        ref = rot['nominal_rpm'] * c.rpm_percent / 100.0
+        lo = 0.2 * rot['nominal_rpm']
+        if c.ground_run:
+            k = runup.index(c)
+            lo = rot['nominal_rpm'] * (runup[k - 1].rpm_percent / 100.0 if k else 0.05)
         s = (f"\t\t<rotor>\n\t\t\t<name>pww-{c.name}-{view}-{src}</name>\n\t\t\t<mode>looped</mode>\n"
              f"\t\t\t<path>{sound_dir}/{fn}</path>\n\t\t\t<condition>\n\t\t\t\t<and>\n\t\t\t\t\t{cond}\n"
-             f"\t\t\t\t\t<greater-than><property>{prop}</property><value>{0.2 * rot['nominal_rpm']:.0f}</value>"
+             f"\t\t\t\t\t<greater-than><property>{prop}</property><value>{lo:.0f}</value>"
              f"</greater-than>\n\t\t\t\t</and>\n\t\t\t</condition>\n")
-        # one <volume>: the product of the fades and the rotor speed's share of its nominal
-        terms = vols + [_clip(prop, 1.0 / rot['nominal_rpm'], 0.0)]
+        # one <volume>: the product of the fades and (off the ground) the rotor speed's share of its nominal
+        terms = vols + ([] if c.ground_run else [_clip(prop, 1.0 / rot['nominal_rpm'], 0.0)])
         s += "\t\t\t<volume><expression><product>\n"
         s += "".join(f"\t\t\t\t{t}\n" for t in terms)
         s += "\t\t\t</product></expression></volume>\n"
-        s += (f"\t\t\t<pitch><property>{prop}</property><factor>{1.0 / rot['nominal_rpm']:.6g}</factor>"
-              f"<min>0.2</min><max>{opts.pitch_headroom:g}</max></pitch>\n")
+        s += (f"\t\t\t<pitch><property>{prop}</property><factor>{1.0 / ref:.6g}</factor>"
+              f"<min>{min(0.2, lo / ref):.3g}</min><max>{opts.pitch_headroom:g}</max></pitch>\n")
         if view != "cockpit":
-            s += "\t\t\t<reference-dist>100</reference-dist>\n\t\t\t<max-dist>4000</max-dist>\n"
+            # the distance the loop was recorded at: FlightGear scales it from there
+            d = (c.listener_distance_m or 50.0) if c.ground_clearance_m is not None else 100.0
+            s += f"\t\t\t<reference-dist>{d:g}</reference-dist>\n\t\t\t<max-dist>4000</max-dist>\n"
         s += "\t\t</rotor>\n"
         return s
 
@@ -282,6 +309,12 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
     # descent outside the descents' airspeed windows stays on the level loops)
     rest = ("<clip><difference><value>1</value>" + "".join("<product>" + "".join(v) + "</product>" for _, v in moving)
             + "</difference><clipMin>0</clipMin><clipMax>1</clipMax></clip>") if moving else None
+    if airborne:
+        # on the ground the run-up loops (by rotor speed), off it the flight conditions'
+        moving = [(c, v + [airborne]) for c, v in moving]
+        rest = f"<product>{rest}{airborne}</product>" if rest else airborne
+    rpm = "rotors/main/rpm"
+    nom = main["nominal_rpm"]
 
     for view in [exterior] + (["cockpit"] if opts.cockpit else []):
         for i, c in enumerate(level):
@@ -302,6 +335,15 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
             for src in sources:
                 lines.append(entry(c, view, src, vols))
         for c, vols in moving:
+            for src in sources:
+                lines.append(entry(c, view, src, vols))
+        for k, c in enumerate(runup):
+            vols = [f"<property>{wow}</property>"]
+            # the slowest loop fades out toward a stopped rotor
+            below = runup[k - 1].rpm_percent / 100.0 * nom if k > 0 else 0.0
+            vols.append(_ramp(rpm, below, c.rpm_percent / 100.0 * nom))
+            if k < len(runup) - 1:
+                vols.append(_ramp(rpm, runup[k + 1].rpm_percent / 100.0 * nom, c.rpm_percent / 100.0 * nom))
             for src in sources:
                 lines.append(entry(c, view, src, vols))
     lines.append("\t</fx>\n</PropertyList>\n")

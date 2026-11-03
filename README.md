@@ -3,7 +3,8 @@
 Rotor sounds for flight simulators, computed from the physics of the rotor: the blades' aerodynamics, their
 elastic response, the tip-vortex wake that makes the blade slap, and the Ffowcs Williams-Hawkings acoustics. The
 output is seamless, alias-free WAV loops, with banks of them per flight condition, for the cockpit and for
-outside, and a FlightGear sound configuration that blends them.
+outside, and a FlightGear sound configuration that blends them. Also gliders' airframe sound and turbine engines'
+(compressor, combustion, turbine, starter) through starts and shutdowns.
 
 You give it a rotor's published geometry: radius, blades, chord, twist, airfoil, rpm, and a few structural
 frequencies. No CFD and no external comprehensive analysis are needed.
@@ -165,6 +166,70 @@ faces the flow instead of trailing it, its boundary layer thinner and the air ov
 some 40 dB below the canopy's wind: what a pilot feels and hears of
 buffet through the structure is not in the model.
 
+## Turbine engines
+
+`pywopwop engine` and `engine-bank` compute a turboshaft's sound from its thermodynamic state: starts, shutdowns
+and everything between. An aircraft preset lists its engines (`[[engine]]`: the type, the inlet's and exhaust's
+positions and directions, the FlightGear properties that drive it); the engine is a preset in
+`pywopwop/presets/engines/` (`t700`: the UH-60A's T700-GE-700). The sources are the ones NASA's helicopter noise
+system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turbine modules):
+
+| Part | Model |
+|---|---|
+| Cycle | along the operating line by gas generator speed Ng: the compressor's temperature rise as a power of Ng through its published delivery pressures; the flight model's fuel flow (steady, or a start's acceleration schedule below idle); the turbines passing the flow as Stodola's ellipse law says, calibrated on the published power turbine inlet temperature; the shaft power of the flight model's torque line. Cold (cranked, or spooling down): the same air without fuel |
+| Compressor | the first stage's whine, radiated forward from the inlet: Heidmann's method (NASA TM X-71763) in Hough and Weir's revision for small engines (NASA CR-198300): broadband, the blade-passing tones (cut off at low speed), the inlet distortion's tones, and once the relative tip speed is supersonic the buzz-saw's tones at the shaft's orders |
+| Combustion | GE's (Matta's) core noise method in SAE ARP 876, through the turbines (GE's transmission loss), radiated aft from the exhaust |
+| Power turbine | its last stage by GE's turbine method (FAA-RD-77-4), from the exhaust, where it works at its governed speed |
+| Jet | the exhaust's mixing noise, SAE ARP 876's acoustic power |
+| Starter | the air turbine starter's tones and broadband (GE's method) and its exhaust, while it cranks; the bleed air reaches it choked, so its loading holds as it speeds up |
+| Synthesis | tones scattered into narrow bands by the turbulence in the inlet and the wakes, the shafts' speeds wandering, the combustion's roar swelling and fading; absorption, the ground and the cabin wall as for the rotors |
+
+```bash
+pywopwop engine uh60a --ng 65 -o idle.wav
+pywopwop engine uh60a --ng 24 --cold --starter --cockpit -o cranking.wav
+pywopwop engine-bank uh60a -o out/uh60a_engines --like out/uh60a
+pywopwop bank uh60a -o out/uh60a --runup --update
+```
+
+The bank has each engine lit at 14 gas generator speeds (20-104 %: below idle a start's acceleration, from idle the
+operating line), cold at 13 (3-100 %: cranking, and spooling down after a shutdown or a flameout) and its starter
+at 11 (3-62 %), in the cockpit and outside (on the ground 50 m to the right). Layers: `compressor`, `core`
+(combustion and jet), `turbine` (the power turbine, at 100 % Np) and `starter`. `--like` takes a rotor bank's gains,
+so the engines' loudness against its loops is the physics'. `pywopwop-engines.xml` plays each engine's loops by its
+own properties: cross-faded by equal power on `n1-pct` and pitched by n1 over the loop's own Ng (the turbine's by
+`n2-pct`; the core's not, the combustor sets its spectrum), the lit loops while `running` is set and the cold ones
+while it isn't, the core's with `fuel-flow-pph` over its loop's, the starter's while the starter's property is set
+(the UH-60's `/fdm/jsbsim/eng[n]/starter-on`). Every frequency of a turbomachine scales with its shaft speed, so a
+start or a shutdown is the loops following the flight model's Ng: a hung start, a hot start, an aborted start or a
+slow rundown sounds as the engine behaves, not as a recording of someone else's start did.
+
+`bank --runup` adds the rotor's run-up: on the ground with the collective fully down (`flat_pitch_deg`: the UH-60's
+0.25 degrees at 0.75 R, GenHel's 9.9 at the root less the twist), at 20-100 % rotor speed. FlightGear plays them by
+`rotors/main/rpm` while `gear/gear[0]/wow` is set, the flight conditions' loops otherwise.
+
+The T700's cycle follows GE's simulation (NASA TM-105805) at 87.5-99.5 % Ng: delivery pressure within 1.5 %, power
+turbine inlet temperature within 72 K (hotter; GenHel's fuel flow, which the flight model uses, runs about 5 % above
+GE's). Outside, on the ground 50 m to the right: at idle (65 % Ng) one engine makes 68 dBA, a roar round 400 Hz
+with the compressor's whine near 11.6 kHz; both engines at about 80 % Ng (the ground run, the rotor at flat pitch)
+82 dBA, at full power 89 dBA each, the combustion's roar and the power turbine's hiss leading. The rotor's run-up
+at 100 % and flat pitch makes 77 dBA there (83 hovering in ground effect), so on the ground the engines are heard
+over the rotor, and together they reach 85 dBA some 40 m away: measured round a UH-60 on the ground, the 85 dBA
+contour reaches past 100 ft and the crew's positions have 105 dBA or more (Jones et al. 2018; the model gives 100-107
+dBA 6 m from one engine). In the cockpit one engine makes 59 dBA at idle and 72 at full power, against the
+rotor's 75-86. On a start the starter's whine and hiss lead to its cut-out (61-67 dBA in the cockpit), the
+compressor's whine rising through the kilohertz to idle; after a shutdown the whine falls with Ng.
+
+Estimated, as no public source gives them: the first compressor stage's blade and vane counts, diameter and pressure
+ratio, the rotor-stator spacing, the power turbine's last stage, the exhaust's area and the air turbine starter
+(`presets/engines/t700.toml` says which; the blade counts set the whine's pitch). GE's and Heidmann's methods are
+empirical, good to about 5 dB in level. Not modelled: the main gearbox (its mesh tones, the UH-60A's 980 Hz
+planetary and 1,628 Hz combining bevel by the tooth counts of NASA's transmission tests, lead a helicopter's cabin
+noise at some 100 dB, but their level would need a measured cabin spectrum), the APU (the flight model has none),
+the igniters, the light-off itself (the heat release's pulse lies near 10 Hz), the gas generator turbine and the
+centrifugal stage (the blade rows around them block them), the power turbine while it runs the rotor up, and the
+structure-borne path. FlightGear clips a sound's volume at one, so the core's loops follow a fuel flow below their
+own but not one above it.
+
 ## Your own rotor
 
 Copy a preset from `pywopwop/presets/` and edit it: everything is SI (m, kg) except angles (deg) and rotor speed
@@ -201,6 +266,11 @@ thrust axis given for helicopter mode turn forward), and the aircraft its airpla
   altitude's amplitude around the equivalent airspeed.
 - Airplane mode: the trim follows the preset's trims; the MV-22B's rotor power within 1.2 % of its flight model's
   at the same thrust and rotor speed (160-270 kt).
+- Engines: the T700's cycle against GE's nonlinear simulation (NASA TM-105805) at 87.5-99.5 % Ng: compressor
+  delivery pressure within 2 %, power turbine inlet temperature within 80 K. Heidmann's levels in decibels and
+  ANOPP's power form of the same method agree within 0.1 dB at 1 m.
+- Run-up: at flat pitch the rotor makes next to no thrust and its power grows as the cube of its speed; on the
+  ground the run-up loops add up to one at any rotor speed, and off it the flight conditions' do.
 
 ## Limits
 
@@ -208,8 +278,8 @@ The blade-vortex interaction is calibrated to HART II's airloads, the blade-wake
 unsteadiness to plausible values, and the loops were checked against recordings for their texture (how alike
 successive blade passages are, tones against noise); absolute levels are not calibrated against flight tests.
 Linear acoustics (no transonic delocalisation above about Mach 0.9 at the advancing tip), a prescribed rather
-than free wake, modal blades with uniform properties and no lag motion, no fuselage scattering, and no engine,
-gearbox or main rotor wake on the tail rotor. One section per rotor (the UH-60's SC1095 tables with SC1094R8
+than free wake, modal blades with uniform properties and no lag motion, no fuselage scattering, and no gearbox
+or main rotor wake on the tail rotor. One section per rotor (the UH-60's SC1095 tables with SC1094R8
 coordinates for the whole blade; the MV-22B's XN12, the 0.75 R section, with a 12 % thickness for the whole blade,
 whose tip is 9 %); the XV-15 and the quadcopter, whose section tables aren't public, use the smooth section model.
 The tiltrotors fly with their nacelles vertical and their rotors carrying all the weight (no wing lift), or in

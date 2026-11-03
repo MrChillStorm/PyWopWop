@@ -1,0 +1,65 @@
+# General Electric T700-GE-700, the UH-60A's engine: a free-turbine turboshaft with five axial and one centrifugal
+# compressor stage (variable inlet guide vanes and first stators), an annular combustor, a two-stage gas generator
+# turbine and a two-stage power turbine; overall pressure ratio about 17, 1,622 shp intermediate.
+#
+# Published: the design speeds and the steady states at 87.5-99.5 % Ng from GE's nonlinear simulation (Duyar, Gu and
+# Litt, NASA TM-105805, table 1: compressor delivery pressure, power turbine inlet temperature, fuel flow, torque); the
+# operating line over the whole range (fuel flow and torque against corrected Ng) from GenHel (NASA CR-166309, tables
+# 6.5.1 and 6.5.4) as the UH-60 flight model has it, which agrees with GE's within 5 %; the start (TM 1-1520-237-10:
+# starter dropout 52-65 % Ng, idle 63-69 %) and the acceleration fuel schedule as in the flight model.
+#
+# Estimated (no public source found): the first compressor stage's blade and vane counts, diameter and pressure
+# ratio (a transonic stage, as the T700's is, near NASA's Rotor 37: about 1.4 relative tip Mach number at 100 %), the
+# rotor-stator spacing, the power turbine's last stage, the exhaust area and the air turbine starter. The blade counts
+# set the pitch of the whine; change them here if you know them.
+[engine]
+name = "T700-GE-700"
+ng_rpm = 44700.0                 # 100 % gas generator speed
+np_rpm = 20900.0                 # 100 % power turbine speed
+design_ng = 99.5                 # GE's normalising state (TM-105805)
+pressure_ratio = 16.4            # compressor delivery (240.5 psi) over ambient at design_ng
+pressure_ratio_low = [87.5, 8.98]    # (Ng %, ratio): 132.0 psi at 87.5 % Ng; with the design's, the work's power law
+t45_design_k = 1085.6            # power turbine inlet temperature at design_ng (1954 R)
+compressor_efficiency = 0.80
+burner_efficiency = 0.99
+fuel_lhv = 43.2e6                # J/kg, JP-8
+idle_ng = 65.0
+lightoff_ng = 15.0               # the flight model lights the engine above 15 % Ng
+starter_ng = 24.0                # the starter alone cranks it to about 24 %
+dropout_ng = 56.0                # the starter cuts out (52-65 %)
+# steady operating line, sea level standard, against corrected Ng (%): fuel flow (lb/h) and the output torque
+# referred to the rotor shaft at 100 % rotor speed (ft lb, 27.0 rad/s); below 70 % Ng the power turbine gives none
+fuel_line = [[0, 0], [20, 25], [40, 45], [50, 60], [60, 95], [65, 120], [70, 140], [75, 166], [80, 210], [85, 280],
+             [90, 390], [95, 575], [100, 790], [103, 930], [106, 1080]]
+torque_line = [[0, 0], [70, 0], [84.6, 6000], [89.9, 12000], [94.0, 18000], [97.2, 24000], [100.1, 30000],
+               [102.6, 36000], [106, 44000]]
+rotor_omega = 27.0               # rad/s at 100 % rotor speed: the torque line's reference
+start_fuel = [1.35, 60.0]        # acceleration schedule: factor on the steady flow plus lb/h
+
+[compressor]                     # the first axial stage, which the inlet radiates
+rotor_blades = 24                # estimated
+stator_vanes = 36                # estimated: 3 vanes for 2 blades (a CFD model of the stage used that sector)
+inlet_guide_vanes = true
+tip_diameter = 0.190             # m, estimated
+hub_tip_ratio = 0.42
+stage_pressure_ratio = 1.60      # at design_ng, estimated
+stage_efficiency = 0.85
+rotor_stator_spacing = 60.0      # percent of the rotor chord, estimated
+
+[power_turbine]                  # its last stage, which the exhaust radiates
+rotor_blades = 54                # estimated
+tip_diameter = 0.29              # m, estimated
+inlet_area = 0.025               # m^2, the stage's annulus, estimated
+
+[exhaust]
+area = 0.09                      # m^2, estimated
+
+[starter]                        # air turbine starter on the accessory gearbox, APU bleed air
+speed_ratio = 2.4                # its turbine's rpm per Ng rpm, estimated
+rotor_blades = 31                # estimated
+tip_diameter = 0.11              # m, estimated
+inlet_area = 0.002               # m^2, estimated
+air_flow = 0.45                  # kg/s, estimated
+supply_pressure_ratio = 3.4      # estimated
+supply_temperature_k = 480.0     # estimated
+exhaust_area = 0.004             # m^2, estimated

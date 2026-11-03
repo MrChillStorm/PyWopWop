@@ -86,3 +86,42 @@ def test_volumes_fade_and_follow_rpm():
     # a fast descent, outside the descents' airspeed windows (a glide slope at 120 kt): the cruise loop
     fast = {**props, "velocities/airspeed-kt": 120.0, "velocities/vertical-speed-fps": -650.0 / 60.0}
     assert abs(_volume(snd["pww-cruise-side-rotor"], fast) - 1.0) < 1e-6
+
+
+def test_runup_on_the_ground_and_flight_off_it():
+    from pywopwop.bank import RUNUP_CONDITIONS
+    ac = load_aircraft("uh60a")
+    conds = HELICOPTER_CONDITIONS + RUNUP_CONDITIONS
+    files = [dict(condition=c.name, observer=o, source="rotor") for c in conds for o in ("side", "cockpit")]
+    rotors = {r.name: dict(nominal_rpm=r.rpm, blades=r.blades, role=r.role) for r in ac.rotors}
+    fx = ET.fromstring(flightgear_xml(ac, conds, dict(rotors=rotors, files=files), BankOptions())).find("fx")
+    sounds = [s for s in fx if s.findtext("name").endswith("-side-rotor")]
+    runup = [s for s in sounds if "runup" in s.findtext("name")]
+    flight = [s for s in sounds if "runup" not in s.findtext("name")]
+    lo = RUNUP_CONDITIONS[0].rpm_percent / 100.0 * ac.main.rpm
+    for rpm in np.linspace(lo, ac.main.rpm, 9):
+        props = {"velocities/airspeed-kt": 0.0, "velocities/vertical-speed-fps": 0.0, "position/altitude-agl-ft": 2.0,
+                 "rotors/main/rpm": rpm, "gear/gear[0]/wow": 1.0}
+        assert abs(sum(_volume(s, props) for s in runup) - 1.0) < 1e-6
+        assert sum(_volume(s, props) for s in flight) == 0.0
+        air = {**props, "gear/gear[0]/wow": 0.0, "rotors/main/rpm": ac.main.rpm}
+        assert sum(_volume(s, air) for s in runup) == 0.0
+        assert abs(sum(_volume(s, air) for s in flight) - 1.0) < 1e-6
+    full = next(s for s in runup if s.findtext("name") == "pww-runup_100-side-rotor")
+    assert abs(float(full.find("pitch").findtext("factor")) * ac.main.rpm - 1.0) < 1e-5
+    assert full.findtext("reference-dist") == "50"
+
+
+def test_flat_pitch_run():
+    from pywopwop.aero import AeroOptions
+    from pywopwop.model import FlightCondition
+    from pywopwop.operating import operate
+    ac = load_aircraft("uh60a")
+    p = []
+    for rpm in (50.0, 100.0):
+        st = operate(ac, FlightCondition(rpm_percent=rpm, collective_deg=ac.main.flat_pitch_deg,
+                                         ground_height_m=ac.hub_height_m), AeroOptions(n_radial=16, n_azimuth=72))
+        m = st.point("main").aero
+        assert m.thrust < 0.03 * ac.mass_kg * 9.81          # flat pitch: next to no thrust
+        p.append(m.power)
+    assert 6.0 < p[1] / p[0] < 10.0                         # profile power ~ rpm^3

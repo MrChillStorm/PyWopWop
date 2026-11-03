@@ -112,8 +112,23 @@ def check_loop():
             f"{jump:.2f} of the largest step", above < -100 and jump <= 1.0)
 
 
+def check_t700():
+    from . import engine
+    e = engine.load_engine("t700")
+    # GE's nonlinear simulation (NASA TM-105805 table 1): Ng %, compressor delivery psi, power turbine inlet R
+    ge = ((87.5, 132.0, 1472.0), (91.4, 161.7, 1578.0), (94.5, 188.9, 1675.0), (96.7, 212.3, 1778.0),
+          (98.5, 231.5, 1896.0), (99.5, 240.5, 1954.0))
+    dp = dt = 0.0
+    for ng, ps3, t45 in ge:
+        st = engine.engine_state(e, ng)
+        dp = max(dp, abs(st.pr / (ps3 / 14.696) - 1.0))
+        dt = max(dt, abs(st.T45 - t45 / 1.8))
+    return ("T700 cycle vs GE's simulation (NASA TM-105805), 87.5-99.5 % Ng",
+            f"delivery pressure within {100 * dp:.1f} %, TGT within {dt:.0f} K", dp < 0.02 and dt < 80.0)
+
+
 def run(out=print):
-    checks = [check_bpm, check_gutin, check_absorption, check_hover_momentum, check_modes, check_loop]
+    checks = [check_bpm, check_gutin, check_absorption, check_hover_momentum, check_modes, check_loop, check_t700]
     ok = True
     for c in checks:
         name, result, passed = c()

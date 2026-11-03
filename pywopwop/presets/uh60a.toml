@@ -33,6 +33,7 @@ flap2_frequency = 2.8
 torsion_frequency = 4.4
 torsion_damping = 0.15
 airfoil = { name = "SC1095", table = "sc1095_genhel", shape = "sc1094r8", cm0 = -0.015, te_thickness = 0.002 }
+flat_pitch_deg = 0.25        # collective fully down: 9.9 deg at the root (GenHel), less the twist to 0.75 R
 
 [[rotor]]
 name = "tail"
@@ -50,3 +51,23 @@ axis = [0.0, -0.9397, 0.3420]     # thrust to the right, canted 20 deg up
 tail_top_aft = true
 elastic = false
 airfoil = { name = "SC1095", table = "sc1095_genhel", shape = "sc1094r8" }
+
+# Two T700-GE-700 (presets/engines/t700.toml) on the cabin roof either side of and behind the main transmission,
+# inlets forward, exhausts aft and turned 30 deg outboard. Positions estimated from the airframe's layout.
+[[engine]]
+name = "left"
+type = "t700"
+inlet = [-0.3, 0.62, -1.35]
+exhaust = [-2.0, 0.80, -1.30]
+exhaust_axis = [-0.866, 0.5, 0.0]
+properties = "/engines/engine[0]"
+starter_property = "/fdm/jsbsim/eng[0]/starter-on"
+
+[[engine]]
+name = "right"
+type = "t700"
+inlet = [-0.3, -0.62, -1.35]
+exhaust = [-2.0, -0.80, -1.30]
+exhaust_axis = [-0.866, -0.5, 0.0]
+properties = "/engines/engine[1]"
+starter_property = "/fdm/jsbsim/eng[1]/starter-on"

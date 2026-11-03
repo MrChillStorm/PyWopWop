@@ -143,7 +143,7 @@ def cmd_bank(a):
     ac = load_aircraft(a.aircraft)
     opts = BankOptions(observers=a.observers, cockpit=not a.no_cockpit, duration=a.duration, fs=a.fs,
                        bits=a.bits, quality=a.quality, pitch_headroom=a.headroom, only=a.conditions,
-                       update=a.update, mode=a.mode)
+                       update=a.update, mode=a.mode, runup=a.runup)
     t0 = time.time()
     print(f"{ac.name}: rendering the bank into {a.output}")
     m = make_bank(ac, a.output, opts)
@@ -213,6 +213,36 @@ def cmd_glider_bank(a):
           f"FlightGear section: {Path(a.output) / 'pywopwop-glider.xml'}")
 
 
+def cmd_engine(a):
+    from .engine import EngineCondition, engine_state, load_installations, render_engine
+    from .synth import write_wav
+    ac = load_aircraft(a.aircraft)
+    insts = load_installations(a.aircraft)
+    inst = next((x for x in insts if x.name == a.engine), insts[0]) if a.engine else insts[0]
+    o = Observer("cockpit", position=tuple(ac.cockpit)) if a.cockpit else Observer("side", a.az, 0.0, a.dist)
+    c = EngineCondition(a.ng, lit=not a.cold, starter=a.starter, fuel_pph=a.fuel)
+    print(f"{ac.name} {inst.name} engine ({inst.engine.name}): " + engine_state(inst.engine, a.ng, not a.cold, a.fuel).summary())
+    t0 = time.time()
+    r = render_engine(inst, c, o, a.fs, a.duration, a.seed, a.environment, hub_height=ac.hub_height_m)
+    x = r.total
+    out = Path(a.output or f"{Path(a.aircraft).stem}_{inst.name}_ng{a.ng:g}{'_cold' if a.cold else ''}_{o.name}.wav")
+    write_wav(out, x, r.fs, a.bits, 10 ** (a.peak / 20.0) / max(np.max(np.abs(x)), 1e-12))
+    print(f"wrote {out} ({len(x) / r.fs:.2f} s seamless loop, {time.time() - t0:.1f} s); sources at 1 m: "
+          + ", ".join(f"{k} {v:.1f} dB" for k, v in r.meta["source_db_1m"].items()))
+    for k, v in r.levels().items():
+        print(f"  {k:18s} {v['oaspl']:6.1f} dB  {v['dba']:6.1f} dBA")
+
+
+def cmd_engine_bank(a):
+    from .engine import make_engine_bank
+    t0 = time.time()
+    print(f"{a.aircraft}: rendering the engines' bank into {a.output}")
+    m = make_engine_bank(a.aircraft, a.output, distance=a.dist, fs=a.fs, duration=a.duration, bits=a.bits, like=a.like)
+    gains = ", ".join(f"{k} {v:+.1f} dB" for k, v in m["gain_db"].items())
+    print(f"{len(m['files'])} loops, gains {gains}, {time.time() - t0:.0f} s; FlightGear section: "
+          f"{Path(a.output) / 'pywopwop-engines.xml'}")
+
+
 def cmd_validate(a):
     from . import validation
     ok = validation.run(print)
@@ -274,6 +304,8 @@ def main(argv=None):
                    help="add the conditions to the existing bank in the output directory, at its gains")
     s.add_argument("--mode", choices=("helicopter", "airplane"), default="helicopter",
                    help="tiltrotors: the helicopter mode's conditions, or the airplane mode's (nacelles 0)")
+    s.add_argument("--runup", action="store_true",
+                   help="add the rotor's run-up on the ground at flat pitch (with --update: render only it)")
     s.set_defaults(fn=cmd_bank)
     s = sub.add_parser("wind", help="render the cockpit's wind (the windscreen's boundary layer) and its FlightGear section")
     s.add_argument("aircraft")
@@ -331,6 +363,33 @@ def main(argv=None):
     s.add_argument("--fs", type=float, default=48000.0)
     s.add_argument("--bits", type=int, choices=(16, 24, 32), default=16)
     s.set_defaults(fn=cmd_glider_bank)
+    s = sub.add_parser("engine", help="render one turbine engine's sound (compressor, combustion, turbine, starter)")
+    s.add_argument("aircraft", help="aircraft preset or TOML file with [[engine]] entries")
+    s.add_argument("--engine", help="which of its engines (default: the first)")
+    s.add_argument("--ng", type=float, default=100.0, help="gas generator speed, percent")
+    s.add_argument("--cold", action="store_true", help="no flame: cranked by the starter, or spooling down")
+    s.add_argument("--starter", action="store_true", help="the starter cranking")
+    s.add_argument("--fuel", type=float, help="fuel flow, lb/h (default: the operating line; below idle a start's)")
+    s.add_argument("--cockpit", action="store_true", help="the pilot's head")
+    s.add_argument("--az", type=float, default=90.0, help="outside: azimuth from the nose, deg (+ right)")
+    s.add_argument("--dist", type=float, default=50.0, help="outside: distance on the ground, m")
+    s.add_argument("--environment", choices=("free", "ground", "open", "urban"), default="open")
+    s.add_argument("--duration", type=float, default=15.0)
+    s.add_argument("--fs", type=float, default=48000.0)
+    s.add_argument("--bits", type=int, choices=(16, 24, 32), default=16)
+    s.add_argument("--peak", type=float, default=-1.0)
+    s.add_argument("--seed", type=int, default=1)
+    s.add_argument("-o", "--output")
+    s.set_defaults(fn=cmd_engine)
+    s = sub.add_parser("engine-bank", help="render an aircraft's engines' sound bank and its FlightGear section")
+    s.add_argument("aircraft")
+    s.add_argument("-o", "--output", required=True)
+    s.add_argument("--like", help="a rotor bank (folder or manifest.json) whose gains to use")
+    s.add_argument("--dist", type=float, default=50.0, help="outside listener's distance on the ground, m")
+    s.add_argument("--duration", type=float, default=15.0)
+    s.add_argument("--fs", type=float, default=48000.0)
+    s.add_argument("--bits", type=int, choices=(16, 24, 32), default=16)
+    s.set_defaults(fn=cmd_engine_bank)
     sub.add_parser("validate", help="check the models against published and closed-form results").set_defaults(
         fn=cmd_validate)
     sub.add_parser("bench", help="time the solvers").set_defaults(fn=cmd_bench)
