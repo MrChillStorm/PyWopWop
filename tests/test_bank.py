@@ -125,3 +125,19 @@ def test_flat_pitch_run():
         assert m.thrust < 0.03 * ac.mass_kg * 9.81          # flat pitch: next to no thrust
         p.append(m.power)
     assert 6.0 < p[1] / p[0] < 10.0                         # profile power ~ rpm^3
+
+
+def test_cockpit_fades_by_what_is_open():
+    ac = load_aircraft("uh60a")
+    conds = HELICOPTER_CONDITIONS[:1]
+    files = [dict(condition=c.name, observer=o, source="rotor") for c in conds for o in ("cockpit", "cockpit_open")]
+    rotors = {r.name: dict(nominal_rpm=r.rpm, blades=r.blades, role=r.role) for r in ac.rotors}
+    fx = ET.fromstring(flightgear_xml(ac, conds, dict(rotors=rotors, files=files), BankOptions())).find("fx")
+    shut, opened = (next(s for s in fx if s.findtext("name") == f"pww-hover-{v}-rotor") for v in ("cockpit", "cockpit_open"))
+    props = {"velocities/airspeed-kt": 0.0, "velocities/vertical-speed-fps": 0.0, "position/altitude-agl-ft": 1000.0,
+             "rotors/main/rpm": ac.main.rpm, **{o["property"]: 0.0 for o in ac.cabin.openings}}
+    assert abs(_volume(shut, props) - 1.0) < 1e-9 and _volume(opened, props) == 0.0
+    both_cabin_doors = {**props, **{o["property"]: 1.0 for o in ac.cabin.openings if "bay" in o["property"]}}
+    u = 0.1 / ac.cabin.open_share
+    assert abs(_volume(opened, both_cabin_doors) ** 2 - u) < 1e-9          # by equal power
+    assert abs(_volume(shut, both_cabin_doors) ** 2 + _volume(opened, both_cabin_doors) ** 2 - 1.0) < 1e-9

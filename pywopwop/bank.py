@@ -112,8 +112,8 @@ def _observers(aircraft, c, opts):
         obs.append(o)
     if opts.cockpit:
         obs.append(Observer("cockpit", position=tuple(aircraft.cockpit)))
-        if aircraft.cabin.door_share > 0:
-            obs.append(Observer("cockpit_open", position=tuple(aircraft.cockpit)))     # the cabin doors open
+        if aircraft.cabin.openings:
+            obs.append(Observer("cockpit_open", position=tuple(aircraft.cockpit)))     # every opening open
     return obs
 
 
@@ -260,16 +260,17 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
     tail = next((r for r in rotors.values() if r["role"] == "tail"), None)
     main = next(r for r in rotors.values() if r["role"] != "tail")
 
-    open_view = any(e["observer"] == "cockpit_open" for e in manifest["files"])
-    doors = aircraft.cabin.door_property if open_view else None
+    open_view = any(e["observer"] == "cockpit_open" for e in manifest["files"]) and aircraft.cabin.openings
+    if open_view:
+        from .wind import open_weights
+        shut_w, open_w = open_weights(aircraft.cabin.openings)
 
     def entry(c, view, src, vols):
         if (c.name, view, src) not in have:
             return ""
-        if view.startswith("cockpit") and doors:
-            # the closed and open cockpit's loops are one signal through two walls: faded by the doors' opening
-            d = f"<clip><property>{doors}</property><clipMin>0</clipMin><clipMax>1</clipMax></clip>"
-            vols = vols + [d if view == "cockpit_open" else f"<difference><value>1</value>{d}</difference>"]
+        if view.startswith("cockpit") and open_view:
+            # the shut and the all-open cockpit's loops by how much of the doors and windows is open
+            vols = vols + [open_w if view == "cockpit_open" else shut_w]
         fn = f"{c.name}_{view}_{src}.wav"
         rot = tail if src == "tail" else main
         prop = f"rotors/{'tail' if src == 'tail' else 'main'}/rpm"

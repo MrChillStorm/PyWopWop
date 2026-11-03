@@ -211,7 +211,7 @@ class Cabin:
     coincidence frequency, and Sharp's above it, TL = 20 log10(m f) + 10 log10(2 eta f / (pi f_c)) - 47 dB, joined
     linearly (in log frequency) between: the dip where the panel's bending waves match the sound's trace on it lets a
     turbine's whine through far more than the mass law says. The areas' transmission coefficients add (composite
-    transmission): an open door's area passes everything."""
+    transmission): an open door's or window's area passes everything."""
     surface_mass: float = 8.0           # kg/m^2: skin, frames and trim
     coincidence_hz: float = None        # the skin's coincidence frequency (None: a limp wall, the mass law alone)
     loss_factor: float = 0.02
@@ -219,9 +219,14 @@ class Cabin:
     window_mass: float = 7.0            # kg/m^2
     window_coincidence_hz: float = 6000.0
     window_loss_factor: float = 0.03
-    leak: float = 1e-3                  # area share open with the doors shut (seals, gaps): -30 dB
-    door_share: float = 0.0             # area share open with the doors open
-    door_property: str = None           # FlightGear: the doors' opening, 0..1
+    leak: float = 1e-3                  # area share open with everything shut (seals, gaps): -30 dB
+    openings: list = field(default_factory=list)    # [{name, share, property}]: what opens, its share of the
+                                                    # walls' area, the FlightGear property of its opening (0..1)
+
+    @property
+    def open_share(self):
+        """the area share open with every opening open"""
+        return float(sum(o["share"] for o in self.openings))
 
     @staticmethod
     def panel_tl(f, m, fc, eta):
@@ -237,10 +242,10 @@ class Cabin:
         return np.maximum(tl, 0.0)
 
     def tau(self, f, doors_open=False):
-        """the walls' transmission coefficient (power) at the frequencies f"""
+        """the walls' transmission coefficient (power) at the frequencies f, with every opening open or shut"""
         skin = 10.0 ** (-self.panel_tl(f, self.surface_mass, self.coincidence_hz, self.loss_factor) / 10.0)
         win = 10.0 ** (-self.panel_tl(f, self.window_mass, self.window_coincidence_hz, self.window_loss_factor) / 10.0)
-        opening = self.leak + (self.door_share if doors_open else 0.0)
+        opening = self.leak + (self.open_share if doors_open else 0.0)
         return (1.0 - self.window_share - opening) * skin + self.window_share * win + opening
 
 

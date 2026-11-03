@@ -53,8 +53,10 @@ elastic = false
 airfoil = { name = "SC1095", table = "sc1095_genhel", shape = "sc1094r8" }
 
 # The cockpit's walls: skin with frames and trim (about 1 mm aluminium skin: coincidence near 12 kHz) and the
-# windscreens and windows round the cockpit (6 mm transparencies: near 6 kHz); the cockpit opens to the cabin, whose
-# two sliding doors open about a tenth of the walls' area. Estimated from the airframe's build.
+# windscreens and windows round the cockpit (6 mm transparencies: near 6 kHz); the cockpit opens to the cabin. What
+# opens, by its share of the walls' area round the cockpit and cabin (about 48 m^2): the sliding cabin doors (about
+# 2.4 m^2 each), the hinged cockpit doors (about 1.2 m^2, beside the pilots: counted double), the gunner's windows behind
+# them. Estimated from the airframe's build; the properties are the FlightGear model's door animations.
 [cabin]
 surface_mass = 8.0
 coincidence_hz = 12000.0
@@ -64,8 +66,14 @@ window_mass = 7.0
 window_coincidence_hz = 6000.0
 window_loss_factor = 0.03
 leak = 0.001
-door_share = 0.1
-door_property = "sim/model/door-positions/passenger/position-norm"
+openings = [
+  { name = "cabin door, left", share = 0.05, property = "sim/model/door-positions/bayL/position-norm" },
+  { name = "cabin door, right", share = 0.05, property = "sim/model/door-positions/bayR/position-norm" },
+  { name = "cockpit door, left", share = 0.04, property = "sim/model/door-positions/passenger/position-norm" },
+  { name = "cockpit door, right", share = 0.04, property = "sim/model/door-positions/crew/position-norm" },
+  { name = "gunner's window, left", share = 0.01, property = "sim/model/door-positions/windowsL/position-norm" },
+  { name = "gunner's window, right", share = 0.01, property = "sim/model/door-positions/windowsR/position-norm" },
+]
 
 # Two T700-GE-700 (presets/engines/t700.toml) on the cabin roof either side of and behind the main transmission,
 # inlets forward, exhausts aft and turned 30 deg outboard. Positions estimated from the airframe's layout.

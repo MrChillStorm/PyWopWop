@@ -753,7 +753,7 @@ APU_PCT = (5.0, 10.0, 20.0, 35.0, 50.0, 65.0, 80.0, 90.0, 100.0)
 
 def _views(aircraft, distance):
     v = [Observer("cockpit", position=tuple(aircraft.cockpit))]
-    if aircraft.cabin.door_share > 0:
+    if aircraft.cabin.openings:
         v.append(Observer("cockpit_open", position=tuple(aircraft.cockpit)))
     return v + [Observer("side", 90.0, 0.0, distance)]
 
@@ -849,7 +849,7 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
                                   starter_property=x.starter_property or f"{x.properties}/cranking",
                                   idle_ng=x.engine.idle_ng, lightoff_ng=x.engine.lightoff_ng) for x in insts],
                     lit_ng=list(LIT_NG), cold_ng=list(COLD_NG), starter_ng=list(STARTER_NG),
-                    door_property=ac.cabin.door_property if ac.cabin.door_share > 0 else None,
+                    openings=[dict(share=o["share"], property=o["property"]) for o in ac.cabin.openings],
                     apu=dict(name=apu.name, property=apu.property, grid=list(APU_PCT)) if apu else None,
                     gearbox=dict(rpm_property=tr.rpm_property, nominal_rpm=ac.main.rpm,
                                  torque_properties=tr.torque_properties) if tr else None,
@@ -865,20 +865,22 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
     by n1 over its own (the turbine's by n2 over 100 %; the core's not: the combustor sets its spectrum). The lit
     loops while the engine runs, the cold ones while it doesn't, the starter's while it cranks; the core's with the
     fuel flow over its loop's (combustion noise's amplitude goes with the heat release at a given Ng). The APU's by
-    its speed. Inside, the closed and the open cockpit's loops by the doors' opening."""
+    its speed. Inside, the shut and the all-open cockpit's loops by how much of the doors and windows is open."""
     from .wind import _e, _v, _ramp_e
     have = {(f["engine"], f["layer"], f["state"], f["ng"], f["observer"]): f for f in manifest["files"]}
     dist = manifest["exterior_distance_m"]
     views = ["cockpit"] + (["cockpit_open"] if any(f["observer"] == "cockpit_open" for f in manifest["files"])
                            else []) + ["side"]
-    door = manifest.get("door_property") if "cockpit_open" in views else None
+    openings = manifest.get("openings") if "cockpit_open" in views else None
+    if openings:
+        from .wind import open_weights
+        shut_w, open_w = open_weights(openings)
 
     def doors(view):
-        """the closed and open cockpit's loops are one signal through two walls: faded by the doors' opening"""
-        if not door or not view.startswith("cockpit"):
+        """the shut and the all-open cockpit's loops by how much of the doors and windows is open"""
+        if not openings or not view.startswith("cockpit"):
             return []
-        d = _e("clip", f"<property>{door}</property>", "<clipMin>0</clipMin><clipMax>1</clipMax>")
-        return [d if view == "cockpit_open" else _e("difference", _v(1.0), d)]
+        return [open_w if view == "cockpit_open" else shut_w]
     out = []
 
     def series(who, layer, state, grid, view, speed, extra, lo0=0.0, pitch="n1", n2=None):

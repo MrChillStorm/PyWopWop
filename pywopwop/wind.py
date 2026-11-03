@@ -104,6 +104,16 @@ def _ramp_e(e, a, b):
     return _e("clip", _e("sum", _e("product", e, _v(k)), _v(-a * k)), "<clipMin>0</clipMin><clipMax>1</clipMax>")
 
 
+def open_weights(openings):
+    """FlightGear expressions weighting the shut cockpit's loops and the all-open cockpit's ([{share, property}]):
+    the area open as a share u of all that can open; the two loops are one signal through two walls, the power
+    through the openings grows with their area, so by equal power: sqrt(1 - u) and sqrt(u)"""
+    total = sum(o["share"] for o in openings)
+    u = _e("clip", _e("sum", *[_e("product", f"<property>{o['property']}</property>", _v(o["share"] / total))
+                               for o in openings]), "<clipMin>0</clipMin><clipMax>1</clipMax>")
+    return _e("sqrt", _e("difference", _v(1.0), u)), _e("sqrt", u)
+
+
 def flightgear_wind_xml(manifest, sound_dir="Sounds/pywopwop"):
     """FlightGear <fx> entries for the cockpit's wind: each sea level loop's weight by the equivalent sea level airspeed
     V_eq (powers added: the loops are unrelated noise), times the amplitude at altitude, from FlightGear's equivalent

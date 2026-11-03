@@ -29,7 +29,9 @@ def test_coincidence_lets_a_whine_through():
     assert abs(dip - 10 * np.log10(2 * c.loss_factor / np.pi)) < 1e-9      # Sharp's dip at coincidence
     whine = np.array([10000.0])
     assert c.tau(whine)[0] > Cabin(surface_mass=c.surface_mass).tau(whine)[0]   # more of a whine gets in
-    assert np.all(-10 * np.log10(c.tau(f, doors_open=True)) <= -10 * np.log10(c.door_share) + 1e-9)
+    assert np.all(-10 * np.log10(c.tau(f, doors_open=True)) <= -10 * np.log10(c.open_share) + 1e-9)
+    assert {o["property"].split("/")[3] for o in c.openings} == {"bayL", "bayR", "passenger", "crew", "windowsL",
+                                                                 "windowsR"}
 
 
 def test_apu_moves_with_its_speed():
@@ -42,7 +44,8 @@ def test_apu_moves_with_its_speed():
 
 def test_doors_and_apu_in_the_engines_section():
     m = dict(aircraft="X", exterior_distance_m=50.0, lit_ng=[65.0], cold_ng=[], starter_ng=[],
-             door_property="doors", apu=dict(name="A", property="/apu/n", grid=[50.0, 100.0]),
+             openings=[dict(share=0.1, property="doors"), dict(share=0.02, property="windows")],
+             apu=dict(name="A", property="/apu/n", grid=[50.0, 100.0]),
              engines=[dict(name="left", properties="/e0", starter_property="/s0", idle_ng=65.0, lightoff_ng=15.0)],
              files=[dict(file=f"{w}{v}{n}.wav", engine=w, layer=l, state=s, ng=n, observer=v, fuel_pph=100.0)
                     for v in ("cockpit", "cockpit_open", "side")

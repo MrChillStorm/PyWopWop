@@ -65,7 +65,8 @@ Media players such as Audacity and VLC restart playback at the loop point, which
 Cheeseman and Bennett, and the recirculating downwash's turbulence). Listening positions: `front`, `front_right`, `side`, `rear`, `below`, `left`
 (100 m from the main rotor hub, riding along with the aircraft), `--az --el --dist` for any other, or
 `--cockpit` (the preset's pilot position, heard through the cabin's walls: the preset's `[cabin]`, skin and windows
-with their coincidence dips, leaks, and with `--doors-open` the doors' opening; without one a limp 8 kg/m^2 wall).
+with their coincidence dips, leaks, and with `--doors-open` every door and window it lists open; without one a limp
+8 kg/m^2 wall).
 `--stems` also writes every rotor and component.
 
 `bank` renders every flight condition (hover out of and in ground effect, translational lift, slow and fast
@@ -185,7 +186,7 @@ system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turb
 | Starter | the air turbine starter while it cranks: its turbine's tones and broadband (GE's method) through the engine's cowling (mass law), its exhaust ducted overboard; the bleed air reaches it choked, so its loading holds as it speeds up |
 | APU | by its recorded signature (`presets/apu/`): its shaft's orders and its broadband spectrum moving with its speed, their power with the speed to the 5th |
 | Transmission | the main gearbox's mesh tones at their tooth counts' frequencies, with harmonics and the planets' or shafts' sidebands, heard inside through the roof (doors open or shut alike), their amplitude with the engines' torque |
-| Cabin | the walls between the outside and the pilot by area: skin and windows as panels with their coincidence dips (Sharp's transmission loss), leaks, and the doors' opening (composite transmission) |
+| Cabin | the walls between the outside and the pilot by area: skin and windows as panels with their coincidence dips (Sharp's transmission loss), leaks, and what opens (doors, windows) by its share of the area (composite transmission) |
 | Synthesis | tones scattered into narrow bands by the turbulence in the inlet and the wakes, the shafts' speeds wandering, the combustion's roar swelling and fading; absorption and the ground as for the rotors |
 
 ```bash
@@ -197,8 +198,8 @@ pywopwop bank uh60a -o out/uh60a --runup --update
 
 The bank has each engine lit at 14 gas generator speeds (20-104 %: below idle a start's acceleration, from idle the
 operating line), cold at 13 (3-100 %: cranking, and spooling down after a shutdown or a flameout) and its starter
-at 11 (3-62 %), the APU at 9 speeds (5-100 %) and the gearbox at full torque, in the cockpit with the doors shut and
-open and outside (on the ground 50 m to the right). Layers: `compressor`, `core` (combustion and jet), `turbine`
+at 11 (3-62 %), the APU at 9 speeds (5-100 %) and the gearbox at full torque, in the cockpit with everything shut and
+everything open and outside (on the ground 50 m to the right). Layers: `compressor`, `core` (combustion and jet), `turbine`
 (the power turbine, at 100 % Np), `starter`, `apu` and `gearbox`. `--like` takes a rotor bank's gains,
 so the engines' loudness against its loops is the physics'. `pywopwop-engines.xml` plays each engine's loops by its
 own properties: cross-faded by equal power on `n1-pct` and pitched by n1 over the loop's own Ng (the turbine's by
@@ -206,8 +207,9 @@ own properties: cross-faded by equal power on `n1-pct` and pitched by n1 over th
 while it isn't, the core's with `fuel-flow-pph` over its loop's, the starter's while the starter's property is set
 (the UH-60's `/fdm/jsbsim/eng[n]/starter-on`); the APU's by its speed (a property the aircraft preset names: the
 UH-60 flight model has no APU yet), the gearbox's with the rotor speed and the engines' mean `torque-pct`; inside, the
-shut and the open cockpit's loops by the doors' opening (the UH-60's cabin doors,
-`sim/model/door-positions/passenger/position-norm`). Every frequency of a turbomachine scales with its shaft speed, so a
+shut and the all-open cockpit's loops by equal power on the share of the openings' area that is open: the
+preset's `openings`, each with its property (the UH-60's sliding cabin doors, cockpit doors and gunner's windows,
+`sim/model/door-positions/{bayL,bayR,passenger,crew,windowsL,windowsR}/position-norm`). Every frequency of a turbomachine scales with its shaft speed, so a
 start or a shutdown is the loops following the flight model's Ng: a hung start, a hot start, an aborted start or a
 slow rundown sounds as the engine behaves, not as a recording of someone else's start did.
 
@@ -222,8 +224,8 @@ power, the combustion's roar and the power turbine's hiss leading; the APU 83. M
 the 85 dBA contour reaches past 100 ft and the crew's positions have 105 dBA or more, the worst near the APU (Jones et
 al. 2018). In the cockpit with the doors shut: on the ground the APU leads at 78-80 dBA (an idling engine 62-66); at
 FLY on the ground the gearbox 87, the engines 72 and the rotor 70; in the hover the gearbox 102 dBA over the rotor's
-85 and the engines' 74, about the 100-105 dBA reported in such cabins. With the doors open the outside sources come in
-about 10 dB more (the APU 90 dBA, an idling engine 81). On a start the APU's whistle and roar come first, then the
+85 and the engines' 74, about the 100-105 dBA reported in such cabins. With the cabin doors open the outside sources come in
+10-12 dB louder (the APU about 90 dBA, the idling engines 85). On a start the APU's whistle and roar come first, then the
 compressor's two-tone whine while the starter cranks, rising through the kilohertz to idle; after a shutdown the whine
 falls with Ng.
 
