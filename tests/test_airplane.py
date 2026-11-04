@@ -1,5 +1,6 @@
 """Tiltrotors in airplane mode: the trim follows the aircraft's level-flight trims, the hubs swing about the pivot."""
 import numpy as np
+import pytest
 
 from pywopwop.aero import AeroOptions
 from pywopwop.model import FlightCondition, load_aircraft
@@ -20,7 +21,7 @@ def test_airplane_trim_follows_the_table():
     ac = load_aircraft("mv22b")
     tab = np.asarray(ac.airplane_trim)
     opts = AeroOptions(n_radial=24, n_azimuth=180, bvi=False, elastic=False)
-    st = operate(ac, FlightCondition(airspeed_kt=220.0, nacelle_deg=0.0), opts)
+    st = operate(ac, FlightCondition(airspeed_kt=220.0, nacelle_deg=0.0, altitude_m=ac.airplane_trim_m), opts)
     alpha = np.interp(220.0, tab[:, 0], tab[:, 1])
     assert abs(np.degrees(st.pitch) - alpha) < 1e-9                    # level: the attitude is the angle of attack
     for p in st.points:
@@ -28,5 +29,38 @@ def test_airplane_trim_follows_the_table():
         assert abs(p.aero.omega * 60 / (2 * np.pi) - ac.airplane_rpm) < 1e-9
         assert abs(np.degrees(p.alpha_tpp) + 90.0 - alpha) < 0.01       # the flow nearly along the shaft
     # climbing, the rotors also lift the weight's component along the path
-    up = operate(ac, FlightCondition(airspeed_kt=220.0, climb_fpm=1500.0, nacelle_deg=0.0), opts)
+    up = operate(ac, FlightCondition(airspeed_kt=220.0, climb_fpm=1500.0, nacelle_deg=0.0,
+                                     altitude_m=ac.airplane_trim_m), opts)
     assert up.points[0].aero.thrust > st.points[0].aero.thrust
+    # higher up the same true airspeed is a lower dynamic pressure: the table's slower row, more angle of attack
+    high = operate(ac, FlightCondition(airspeed_kt=220.0, nacelle_deg=0.0, altitude_m=3048.0), opts)
+    v = 220.0 * np.sqrt(high.atm.rho / st.atm.rho)
+    assert abs(np.degrees(high.pitch) - np.interp(v, tab[:, 0], tab[:, 1])) < 1e-9 and np.degrees(high.pitch) > alpha
+
+
+def test_a_rotors_index_puts_its_blades_out_of_step():
+    from dataclasses import replace
+    from pywopwop.synth import RotorSound, synthesize, Variability
+    n = 1024
+    H = np.zeros(n // 2 + 1, complex)
+    H[3] = 1.0 * n
+    one = RotorSound("a", 3, 5.0, H, np.zeros_like(H), n)
+    var = Variability.none()
+    both = lambda deg: synthesize([one, replace(one, name="b", index_deg=deg)], 4800.0, 2.0, var)["total"]
+    assert np.std(both(60.0)) < 0.01 * np.std(both(0.0))      # half a blade pitch: their blade-passing tones cancel
+
+
+def test_bank_flies_calibrated_airspeeds():
+    """a simulator fades a bank by calibrated airspeed: at altitude a condition flies the true airspeed with sea
+    level's dynamic pressure, inside the trims up to the bank's fastest"""
+    from pywopwop.atmosphere import Atmosphere
+    from pywopwop.bank import AIRPLANE_ALTITUDE_M, AIRPLANE_CONDITIONS, BankCondition, flight_condition
+    ac = load_aircraft("mv22b")
+    c = BankCondition("x", 220.0, nacelle_deg=0.0)
+    assert flight_condition(ac, c).airspeed_kt == pytest.approx(220.0)
+    high = flight_condition(ac, c, AIRPLANE_ALTITUDE_M)
+    q = lambda kt, h: Atmosphere(h).rho * kt ** 2
+    assert q(high.airspeed_kt, AIRPLANE_ALTITUDE_M) == pytest.approx(q(220.0, 0.0))
+    assert high.airspeed_kt > 250.0
+    for b in AIRPLANE_CONDITIONS:
+        operate(ac, flight_condition(ac, b, AIRPLANE_ALTITUDE_M), AeroOptions(n_radial=12, n_azimuth=24))

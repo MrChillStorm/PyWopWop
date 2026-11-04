@@ -52,3 +52,15 @@ def test_flightgear_section():
     vols = [vol(s, _props(eas, h)) for s in sounds]
     assert abs(sum(x ** 2 for x in vols) - amp ** 2) < 1e-3 * amp ** 2
     assert all(x == 0.0 for x, v in zip(vols, speeds) if abs(v - veq) > 50.0)
+
+
+def test_wind_passes_the_windscreen_not_its_leaks():
+    from pywopwop.wind import transmission, windscreen
+    ac = load_aircraft("mv22b")
+    f = np.array([100.0, 1000.0, 10000.0])
+    U = 250.0 * KT
+    T = transmission(f, U, windscreen(ac), 340.0)
+    mass = 10 ** (-(20 * np.log10(ac.cabin.window_mass * f) - 47.0) / 10)
+    fa = ac.cabin.window_coincidence_hz * (0.7 * U / 340.0) ** 2           # hydrodynamic coincidence
+    assert np.allclose(T, mass * (f / fa) ** 2 / (1 + (f / fa) ** 2))
+    assert T[2] < 0.1 * ac.cabin.leak                         # far under the leaks' floor: they don't carry the eddies

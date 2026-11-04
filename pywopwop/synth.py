@@ -8,7 +8,8 @@ time history (a deterministic plus stochastic model, as in spectral modelling sy
 perfectly periodic: gusts and turbulence move the blade loads, blades differ slightly in track, the governor lets
 the rotor speed wander. These are added as small slow random processes, periodic over the loop too.
 """
-from dataclasses import dataclass, field
+import zlib
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import scipy.fft as sfft
@@ -57,14 +58,16 @@ class Quality:
     surface_chord: int = 24
     fs_source: float = 96000.0
     bb_azimuth: int = 128
+    wall_dx: float = 0.5            # the fuselage's wall patches inside: slices along it, m
+    wall_around: int = 8            # and sectors round each
 
     @classmethod
     def get(cls, name):
         if isinstance(name, Quality):
             return name
-        return {"draft": cls("draft", 24, 360, 1, 12, 32000.0, 64),
+        return {"draft": cls("draft", 24, 360, 1, 12, 32000.0, 64, 1.0, 6),
                 "normal": cls(),
-                "high": cls("high", 60, 1440, 6, 32, 192000.0, 256)}[name]
+                "high": cls("high", 60, 1440, 6, 32, 192000.0, 256, 0.25, 12)}[name]
 
 
 @dataclass
@@ -82,6 +85,7 @@ class RotorSound:
     role: str = "main"
     H_var: np.ndarray = None        # (variants, harmonics): loading of revolutions with gusts and vortex wander
     H_var_base: np.ndarray = None   # the same without the blade-vortex interaction
+    index_deg: float = 0.0          # the rotor's blades behind the first rotor's (Rotor.index_deg)
 
 
 @dataclass
@@ -131,9 +135,9 @@ def a_weighted_ms(x, fs):
 
 
 def rotor_sound(point, observer_h, quality="normal", broadband_opts=None, with_broadband=True, cache=None,
-                variability=None):
+                variability=None, on_wall=False):
     """Acoustics of a solved rotor at an observer riding with the aircraft (heading frame, metres from the main
-    hub)."""
+    hub). on_wall: the observer is on the airframe's own skin."""
     from .aero import load_variants
     q = Quality.get(quality)
     cache = cache if cache is not None else {}
@@ -169,6 +173,15 @@ def rotor_sound(point, observer_h, quality="normal", broadband_opts=None, with_b
                                             loads=(v["ft_base"], v["fz_base"]))) for v in V]
         Hv = np.array([f1a.single_blade_harmonics(a, o, n)[1] for a, _ in cache[kv]])
         Hvb = np.array([f1a.single_blade_harmonics(b, o, n)[1] for _, b in cache[kv]])
+    # a wing behind the disc: its unsteady lift under the blade's vortices, part of the blade's loading
+    wl = cache.get((key, "wing"))
+    if wl is not None:
+        from .wing import harmonics as wing_harmonics
+        Hw = wing_harmonics(wl, o, n, radiating=on_wall)
+        Hl = Hl + Hw
+        Hb = Hb + Hw if Hb is not None else None
+        Hv = Hv + Hw[None, :] if Hv is not None else None
+        Hvb = Hvb + Hw[None, :] if Hvb is not None else None
     hist = None
     if with_broadband:
         bo = broadband_opts or broadband.BroadbandOptions(n_azimuth=q.bb_azimuth)
@@ -179,7 +192,123 @@ def rotor_sound(point, observer_h, quality="normal", broadband_opts=None, with_b
                          turbulence_scale=(bo.turbulence_ms ** 2 * bo.turbulence_scale + rec ** 2 * 0.3 * R) / t2)
         hist = broadband.spectral_history(point, o, bo)
     return RotorSound(point.rotor.name, point.rotor.blades, point.aero.omega / (2.0 * np.pi), Ht, Hl, n, hist,
-                      float(np.linalg.norm(o)), Hb, point.rotor.role, Hv, Hvb)
+                      float(np.linalg.norm(o)), Hb, point.rotor.role, Hv, Hvb, point.rotor.index_deg)
+
+
+def modal_response(name, seed, n, fade):
+    """One draw of the cabin's response to n harmonics of the rotor `name`, faded in by `fade` (0..1 per harmonic)"""
+    rng = np.random.default_rng(zlib.crc32(name.encode()) + seed)
+    modes = (rng.normal(size=n) + 1j * rng.normal(size=n)) / np.sqrt(2.0)
+    return np.abs(modes) ** fade * np.exp(1j * fade * np.angle(modes))
+
+
+def wall_field(point, listener_h, walls_h, areas, quality="normal", broadband_opts=None, with_broadband=True,
+               cache=None, variability=None, first_mode_hz=70.0, c0=340.0, cabin=None, glazed=None, covered=None):
+    """One rotor heard inside through the pressure on the walls (walls_h: points just outside the skin, heading
+    frame; areas, m^2), as a RotorSound at the listener. Below the cockpit's lowest mode the cabin is one pressure
+    chamber: the area-weighted mean of the walls' pressure, each patch delayed by its path to the listener; above it a
+    diffuse field: their powers added, each harmonic then a draw of the cabin's modal response (random phase, levels
+    scattered), faded in over the octave below the mode. The broadband
+    adds by power. The pass-to-pass variants are computed once, at the listener, and their fluctuation carried over.
+    What the walls pass and the interior builds up is the cabin filter's, afterwards; but the passing blades'
+    hydrodynamic pressure (the terms falling as 1/r^2) is no sound: a footprint sweeping along the skin at the tip's
+    speed, it drives the walls as a boundary layer's eddies do, poorly below its hydrodynamic coincidence (cabin's
+    near_field_share), and only the radiating terms pass as sound."""
+    cache = cache if cache is not None else {}
+    ref = rotor_sound(point, listener_h, quality, broadband_opts, with_broadband, cache, variability)
+    novar = replace(variability, variants=0) if variability is not None else Variability.none()
+    w = np.asarray(areas, float) / np.sum(areas)
+    f = np.arange(len(ref.H_loading)) * ref.f_rot
+    s = np.clip(np.log2(np.maximum(f, 1e-9) / (0.5 * first_mode_hz)), 0.0, 1.0)
+    keys = ("H_thickness", "H_loading", "H_loading_base")
+    mean = {k: np.zeros(len(f), complex) for k in keys}
+    power = {k: np.zeros(len(f)) for k in keys}
+    msp = 0.0
+    # each patch's walls against the cabin filter's (applied afterwards to all of it): its sound and the near field's
+    # amplitude through them over the composite's, per harmonic
+    V_tip = point.aero.omega * point.rotor.radius
+    kinds = {}
+    for g in ([None] if glazed is None else (True, False)):
+        if cabin is None:
+            kinds[g] = (np.ones(len(f)), np.ones(len(f)))
+        else:
+            comp = np.maximum(cabin.tau(f), 1e-300)
+            snd_g = cabin.tau(f) if g is None else cabin.patch_tau(f, g)
+            kinds[g] = (np.sqrt(snd_g / comp), np.sqrt(cabin.near_field_share(f, V_tip, c0, g)))
+    src = cache[id(point)]
+    src_b = cache.get((id(point), "base"))
+    total = float(np.sum(areas))
+    loudest = np.zeros(len(areas))
+    for i, (wi, ai, p) in enumerate(zip(w, areas, walls_h)):
+        if covered is not None and covered[i]:
+            continue                                    # under the wing box: no outside air on it
+        g_i = None if glazed is None else bool(glazed[i])
+        acoustic, near = kinds[g_i]
+        snd = rotor_sound(point, p, quality, broadband_opts, with_broadband, cache, novar, on_wall=True)
+        r = np.linalg.norm(np.asarray(p) - np.asarray(listener_h))
+        delay = np.exp(-2j * np.pi * f * r / c0)
+        # the patch's direct field at the listener on top of its share of the diffuse one
+        g = 1.0 + (cabin.direct(f, r, ai, total) if cabin is not None else 0.0)
+        o = point.to_rotor(p)
+        Ht_n, Hl_n, _ = f1a.single_blade_harmonics(src, o, snd.n, near_only=True)
+        Hb_n = f1a.single_blade_harmonics(src_b, o, snd.n, near_only=True)[1] if src_b is not None else None
+        for k, Hn in (("H_thickness", Ht_n), ("H_loading", Hl_n), ("H_loading_base", Hb_n)):
+            H = getattr(snd, k)
+            if H is not None:
+                H = (H - Hn) * acoustic + Hn * near
+                mean[k] += wi * H * delay
+                power[k] += wi * g * np.abs(H) ** 2
+                loudest[i] += wi * np.sum((g * np.abs(H) ** 2)[:len(f) // 8])
+        if snd.history is not None:
+            fb = snd.history.f
+            gb = 1.0 + (cabin.direct(fb, r, ai, total) if cabin is not None else 0.0)
+            if cabin is not None and g_i is not None:
+                gb = gb * cabin.patch_tau(fb, g_i) / np.maximum(cabin.tau(fb), 1e-300)
+            msp = msp + wi * snd.history.msp * gb[None, :]
+    # a wing bolted to the fuselage: its loads there reach the cabin through the structure, an interior pressure,
+    # added as the outside pressure the cabin filter (applied afterwards) turns into it
+    wl = cache.get((id(point), "wing"))
+    if cabin is not None and wl is not None:
+        from .wing import structure_borne
+        p2 = structure_borne(wl, cabin, total, f)
+        extra = 2.0 * p2 * (0.5 * ref.n) ** 2 / np.maximum(cabin.inside(f), 1e-300)
+        for k in keys:
+            power[k] = power[k] + extra
+    # the diffuse field's modes: each harmonic reaches the listener by the cabin's and the structure's many paths,
+    # whose sum is a complex Gaussian (Schroeder), independent from one harmonic to the next, their spacing being wider
+    # than a mode's bandwidth: random phases and levels scattered by 5.6 dB rms, so a few lines stand on resonances and
+    # the rest don't, and neighbours beat less than equal ones would (one draw per harmonic, the same for its parts),
+    # faded in with the diffuse field; the mean below it
+    turn = modal_response(point.rotor.name, cabin.modes_seed if cabin is not None else 0, len(f), s)
+    out = {}
+    for k in keys:
+        if getattr(ref, k) is None:
+            out[k] = None
+            continue
+        a = np.abs(mean[k])
+        out[k] = mean[k] * np.where(a > 0, (np.sqrt(power[k]) / np.where(a > 0, a, 1.0)) ** s, 1.0) * turn
+
+    # the blades' pass-to-pass fluctuation, as a share of the field, at the patch that carries the most of it: at the
+    # listener the free field's mid harmonics are small and a gust's change of them no measure of the walls' field,
+    # which their steady near field and the wing hold
+    strong = rotor_sound(point, walls_h[int(np.argmax(loudest))], quality, broadband_opts, False, cache, variability,
+                         on_wall=True)
+
+    def carried(V, base, new):
+        """the variants' fluctuation at that patch, per harmonic, on the walls' field: where its harmonic stands
+        within 40 dB of its strongest (in a null of the field the ratio means nothing), at most doubled"""
+        if V is None:
+            return None
+        ok = np.abs(base) > 1e-2 * np.abs(base).max()
+        r = np.where(ok[None, :], V / np.where(ok, base, 1.0)[None, :], 1.0)
+        r = r * np.minimum(1.0, 2.0 / np.maximum(np.abs(r), 1e-12))
+        return new[None, :] * r
+    return replace(ref, H_thickness=out["H_thickness"], H_loading=out["H_loading"],
+                   H_loading_base=out["H_loading_base"],
+                   H_var=carried(strong.H_var, strong.H_loading, out["H_loading"]),
+                   H_var_base=carried(strong.H_var_base, strong.H_loading_base, out["H_loading_base"])
+                   if ref.H_loading_base is not None else None,
+                   history=replace(ref.history, msp=msp) if ref.history is not None else None)
 
 
 def _slow_noise(rng, L, fs, bandwidth, n=1):
@@ -315,6 +444,9 @@ def synthesize(sounds, fs=48000.0, duration=15.0, variability=None, pitch_headro
             xb = _broadband(s.history, L, fs, n_rev, rng, f_lim)
             if var.broadband_rms > 0:
                 xb *= 1.0 + var.broadband_rms * _slow_noise(rng, L, fs, 0.5)[0]
+        if s.index_deg:
+            lag = int(round(s.index_deg / 360.0 * L / n_rev))
+            xt, xl, xs, xb = (np.roll(x, lag) for x in (xt, xl, xs, xb))
         signals[f"{s.name}/thickness"] = xt
         signals[f"{s.name}/loading"] = xl
         signals[f"{s.name}/slap"] = xs
@@ -435,12 +567,13 @@ def propagate_static(x, fs, distance, T=288.15, rh=0.7, p=101325.0):
 
 
 def cabin_filter(x, fs, cabin=8.0, doors_open=False):
-    """Sound through the cabin's walls (a model.Cabin, or a limp wall's surface mass in kg/m^2)."""
+    """Sound through the cabin's walls and built up inside it (a model.Cabin, or a limp wall's surface mass in
+    kg/m^2 with the default interior)."""
     from .model import Cabin
     cabin = cabin if isinstance(cabin, Cabin) else Cabin(surface_mass=float(cabin))
     X = _rfft(x)
     f = np.fft.rfftfreq(len(x), 1.0 / fs)
-    return _irfft(X * np.sqrt(cabin.tau(f, doors_open)), len(x))
+    return _irfft(X * np.sqrt(cabin.inside(f, doors_open)), len(x))
 
 
 def highpass(x, fs, f_hp):
@@ -477,7 +610,29 @@ def render(aircraft, condition, observer, rotors=None, fs=48000.0, duration=15.0
     pts = [p for p in state.points if rotors is None or p.rotor.name in rotors or p.rotor.role in rotors]
     cache = state.__dict__.setdefault("_sound_cache", {})     # shared by the renders of one flight state
     var = variability if variability is not None else Variability()
-    sounds = [rotor_sound(p, pos, q, broadband_opts, with_broadband, cache, var) for p in pts]
+    if broadband_opts is None:
+        broadband_opts = broadband.BroadbandOptions(n_azimuth=q.bb_azimuth,
+                                                    turbulence_ms=broadband.air_turbulence(condition.altitude_m))
+    from .wing import MAX_NACELLE_DEG, covered as wing_covered, wing_loads
+    if getattr(aircraft, "wing", None) and condition.nacelle_deg <= MAX_NACELLE_DEG:
+        for p in pts:
+            if (id(p), "wing") not in cache:
+                fu = getattr(aircraft, "fuselage", None)
+                cache[(id(p), "wing")] = wing_loads(p, aircraft.wing, state.pitch,
+                                                    attach_y=max(s_[1] for s_ in fu) if fu else None)
+    if cabin and observer.position is not None and getattr(aircraft, "fuselage", None):
+        # inside a described fuselage: heard through the pressure on its walls
+        from .model import Cabin, glazed_patches, wall_patches
+        walls, areas = wall_patches(aircraft.fuselage, q.wall_dx, q.wall_around)
+        glazed = glazed_patches(walls, aircraft.glazing) if getattr(aircraft, "glazing", None) else None
+        walls_h = [_pitch_matrix(state.pitch) @ w for w in walls]
+        first = cabin.first_mode_hz if isinstance(cabin, Cabin) else 70.0
+        cab = cabin if isinstance(cabin, Cabin) else Cabin(surface_mass=float(cabin))
+        over = wing_covered(walls, aircraft.wing) if getattr(aircraft, "wing", None) else None
+        sounds = [wall_field(p, pos, walls_h, areas, q, broadband_opts, with_broadband, cache, var, first,
+                             state.atm.c, cab, glazed, over) for p in pts]
+    else:
+        sounds = [rotor_sound(p, pos, q, broadband_opts, with_broadband, cache, var) for p in pts]
     sig = synthesize(sounds, fs, duration, var, pitch_headroom)
     dist = float(np.linalg.norm(pos))
     atm = state.atm

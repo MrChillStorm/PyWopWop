@@ -176,3 +176,23 @@ def test_reception_time_closes_the_retarded_equation():
         x_obs = o + vo * t
         assert abs(np.linalg.norm(x_obs - y) - C0 * (t - tau)) < 1e-9 * C0
         assert abs(np.linalg.norm([rx, ry, rz]) - r) < 1e-9
+
+
+def test_near_field_terms_fade_with_distance():
+    """the 1/r^2 terms (the blade's hydrodynamic pressure) lead close to the blade and vanish far from it"""
+    from pywopwop import f1a
+    from pywopwop.aero import AeroOptions
+    from pywopwop.model import load_aircraft, FlightCondition
+    from pywopwop.operating import operate
+    st = operate(load_aircraft("mv22b"), FlightCondition(airspeed_kt=220.0, nacelle_deg=0.0),
+                 AeroOptions(n_radial=16, n_azimuth=180))
+    p = st.points[0]
+    src = f1a.build_sources(p, chord_points=1, surface_chord=12, fs_target=24000.0)
+    R = p.rotor.radius
+    share = []
+    for d, m in ((0.3, slice(1, 6)), (300.0, slice(1, 6))):     # the far case tens of wavelengths out
+        o = (R + d, 0.0, 0.0)
+        Ht, Hl, n = f1a.single_blade_harmonics(src, o)
+        Htn, Hln, _ = f1a.single_blade_harmonics(src, o, near_only=True)
+        share.append(np.abs(Htn + Hln)[m].sum() / np.abs(Ht + Hl)[m].sum())
+    assert share[0] > 0.3 and share[1] < 0.05

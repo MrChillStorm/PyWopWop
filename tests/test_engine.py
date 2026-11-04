@@ -71,6 +71,40 @@ def test_engine_loop_is_seamless_and_layered():
     assert np.allclose(sum(v for k, v in r.signals.items() if k.startswith("layer/")), x)
 
 
+def test_ae1107c_cycle():
+    e = en.load_engine("ae1107c")
+    d = en.engine_state(e, e.design_ng)
+    assert abs(d.T4 - 273.15 - 1209.0) < 15.0       # the published turbine inlet temperature
+    assert 14.0 < d.W < 18.0 and abs(d.power_w / 745.7 - 6150.0) < 5.0
+    temps = [en.engine_state(e, n).T45 for n in (78.6, 85.0, 90.5, 95.0, 100.0)]
+    assert all(a < b for a, b in zip(temps, temps[1:]))     # hotter with the power, never past the rating's
+    assert max(temps) < d.T45 + 10.0
+    # the flight model's n1: 60 + 45 sqrt(P / 6150) %
+    assert abs(en.engine_state(e, 90.0).power_w / 745.7 - 6150.0 * (30.0 / 45.0) ** 2) < 5.0
+
+
+def test_tiltrotor_engines_turn_with_the_nacelles():
+    heli, plane = en.load_installations("mv22b"), en.load_installations("mv22b", 0.0)
+    for h, a in zip(heli, plane):
+        assert np.allclose(h.inlet_axis, (0, 0, 1)) and np.allclose(a.inlet_axis, (1, 0, 0))
+        assert np.allclose(a.exhaust_axis, (-1, 0, 0))
+        pv = np.asarray(h.pivot)
+        for p, q in ((h.inlet, a.inlet), (h.exhaust, a.exhaust)):
+            assert abs(np.linalg.norm(np.subtract(p, pv)) - np.linalg.norm(np.subtract(q, pv))) < 1e-9
+        assert a.inlet[0] > a.exhaust[0]                      # the inlet ahead in airplane mode
+        assert h.n2_property.endswith("drive/nr-pct")
+        assert h.inside_db == 0.0 and a.inside_db < -10.0     # the measured loss to the cockpit in airplane mode
+    assert en.load_installations("uh60a", 0.0)[0].inlet == en.load_installations("uh60a")[0].inlet
+    a = plane[0]
+    cock, side = Observer("cockpit", position=(4.28, -0.57, -3.15)), Observer("side", 90.0, 0.0, 50.0)
+    c = en.EngineCondition(92.0)
+    for o in (cock, side):
+        loud = en.render_engine(replace(a, inside_db=0.0), c, o, duration=1.0, seed=2).total
+        quiet = en.render_engine(a, c, o, duration=1.0, seed=2).total
+        gain = 20 * np.log10(np.std(quiet) / np.std(loud))
+        assert abs(gain - (a.inside_db if o.position is not None else 0.0)) < 1e-9     # inside only
+
+
 def test_flightgear_engine_section(tmp_path):
     m = dict(aircraft="X", exterior_distance_m=50.0, lit_ng=[65.0, 100.0], cold_ng=[10.0, 30.0],
              starter_ng=[10.0, 30.0],
@@ -94,3 +128,10 @@ def test_flightgear_engine_section(tmp_path):
     assert "n2-pct" in ET.tostring(turbine.find("pitch")).decode()
     assert all(s.find("pitch") is None for s in sounds if "-core-" in s.find("name").text)   # the combustor's
     assert any("/s0" in ET.tostring(s.find("volume")).decode() for s in sounds)
+    # a tiltrotor's airplane-mode bank: its own names, and the power turbine pitched by the rotors' speed
+    m2 = dict(m, mode="airplane", engines=[dict(m["engines"][0], n2_property="/fdm/jsbsim/drive/nr-pct")])
+    root2 = ET.fromstring(en.flightgear_engine_xml(m2))
+    names2 = [s.find("name").text for s in root2.find("fx").findall("engine")]
+    assert all(n.startswith("pww-airplane-") for n in names2) and not set(names2) & set(names)
+    turbine2 = next(s for s in root2.find("fx").findall("engine") if "turbine" in s.find("name").text)
+    assert "drive/nr-pct" in ET.tostring(turbine2.find("pitch")).decode()

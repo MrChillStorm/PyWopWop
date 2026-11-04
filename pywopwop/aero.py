@@ -54,6 +54,64 @@ class AeroOptions:
     wake_turbulent_radius_chords: float = 0.5  # turbulent radius after one revolution, chords (grows as sqrt(age))
 
 
+# A tiltrotor's wing under its discs in a hover: it blocks part of each rotor's downwash, which runs inboard along the
+# wing, meets the other rotor's over the fuselage and rises back through the discs, a fountain. From the XV-15: the
+# inflow over the wing falls to 80 % across 0.6 of its chord with ramps of 0.1 chord either side (Rutledge, Coffen and
+# George 1991, which gives the spikes of pressure measured behind it); the turbulence it brings back, from hot wires on
+# a 1/12 scale model (Coffen, George, Hardinge and Stevenson 1991; George 1996, NASA CR-203040): about 1.5 m/s rms on
+# the inflow of 6 m/s, over the disc's outer third (0.67 < r/R < 1) from the wing's leading edge rearward, of a length
+# scale the disc's height over the wing, and intermittent: it switches from one rotor to the other.
+FOUNTAIN_DEFICIT = 0.2
+FOUNTAIN_FLAT_CHORDS = 0.6
+FOUNTAIN_RAMP_CHORDS = 0.1
+FOUNTAIN_RMS = 0.25                 # of the hover induced velocity
+FOUNTAIN_INTERMITTENCY = 0.5        # the share of the time a rotor has it
+FOUNTAIN_R_INNER = 0.67
+FOUNTAIN_AFT_DEG = 60.0             # how far behind the wing it reaches round the disc
+
+
+@dataclass
+class Fountain:
+    """Where a tiltrotor's wing lies under its disc (rotor frame)."""
+    psi_inboard: float              # rad: the azimuth pointing at the other rotor
+    aft_sign: float                 # +1: the tail lies at higher azimuths than psi_inboard, -1 at lower
+    mid_chord_ahead: float          # m: the wing's mid chord ahead of the hub
+    leading_edge_ahead: float       # m: its leading edge ahead of the hub
+    chord: float                    # m
+    clearance: float                # m: the disc's height over the wing
+    v_hover: float                  # m/s: the hover induced velocity
+    strength: float = 1.0           # 1 in a hover, falling as forward speed sweeps the wake off the wing
+
+
+def _over_the_wing(bm, f):
+    """(Npsi, Nr): each blade element's distance (m) inboard of the hub along the wing and aft of the hub across it"""
+    r = bm.x[None, :] * bm.R
+    d = bm.psi[:, None] - f.psi_inboard
+    return r * np.cos(d), f.aft_sign * r * np.sin(d)
+
+
+def fountain_inflow(bm, lam0, f):
+    """The change in inflow ratio (Npsi, Nr) over the wing: a deficit, in the rotor's mean inflow, with a quarter sine
+    up each side"""
+    along, aft = _over_the_wing(bm, f)
+    half = 0.5 * FOUNTAIN_FLAT_CHORDS * f.chord
+    ramp = FOUNTAIN_RAMP_CHORDS * f.chord
+    s = np.clip((half + ramp - np.abs(aft + f.mid_chord_ahead)) / ramp, 0.0, 1.0)
+    return -FOUNTAIN_DEFICIT * f.strength * lam0 * np.sin(0.5 * np.pi * s) * (along > 0.0)
+
+
+def fountain_turbulence(bm, f):
+    """The fountain's rms turbulent velocity (Npsi, Nr, m/s) as the blades meet it, its intermittency in the mean
+    square"""
+    along, aft = _over_the_wing(bm, f)
+    fwd = np.degrees(np.arcsin(np.clip(f.leading_edge_ahead / bm.R, -1.0, 1.0)))
+    ang = np.degrees(np.arctan2(aft, along))
+    edge = 10.0                     # deg: softened, as the fountain wanders
+    win = np.clip((ang + fwd + edge) / edge, 0.0, 1.0) * np.clip((FOUNTAIN_AFT_DEG + edge - ang) / edge, 0.0, 1.0)
+    rad = np.clip((bm.x[None, :] - FOUNTAIN_R_INNER + 0.05) / 0.1, 0.0, 1.0)
+    return FOUNTAIN_RMS * f.v_hover * f.strength * np.sqrt(FOUNTAIN_INTERMITTENCY) * win * rad
+
+
 @dataclass
 class AeroSolution:
     rotor: Rotor
@@ -88,6 +146,7 @@ class AeroSolution:
     c: float
     nu: float
     dlambda_bvi: np.ndarray = None  # (Npsi, Nr) impulsive inflow from the wake
+    dlambda_fountain: np.ndarray = None     # (Npsi, Nr) a tiltrotor's inflow over its wing in a hover
     fz_base: np.ndarray = None      # the loads without the impulsive part (same trim): BVI = fz - fz_base
     ft_base: np.ndarray = None
     wake: dict = field(default=None, repr=False)
@@ -608,15 +667,29 @@ def wagner_filter(dalpha, UT, chord, mach, omega, revs=3):
     return out
 
 
-def solve_rotor(rotor, omega, V, alpha_tpp, thrust, rho, c, nu, opts=None, ground_height=None):
+def solve_rotor(rotor, omega, V, alpha_tpp, thrust, rho, c, nu, opts=None, ground_height=None, fountain=None):
     """Trimmed loads of one rotor. V: air speed relative to the rotor (m/s); alpha_tpp: angle of the air's velocity
     above the tip-path plane (positive: air rising through the disc, as in descent); thrust (N) along the TPP normal;
-    ground_height: the hub's height above the ground (m) for ground effect, None out of it."""
+    ground_height: the hub's height above the ground (m) for ground effect, None out of it; fountain: a Fountain, a
+    tiltrotor's wing under the disc."""
     opts = opts or AeroOptions()
     bm = _BladeModel(rotor, omega, V, alpha_tpp, rho, c, nu, opts)
     bm.ground_height = ground_height
     cyclic = rotor.cyclic
     u, lam0, lam_i, ld, (T, Q) = trim(bm, thrust, cyclic=cyclic)
+
+    def impose(dl):
+        """an impulsive change in the inflow, through the blade's unsteady response"""
+        bm.extra_lambda = dl
+        if opts.unsteady:
+            up_base = bm.vtip * (lam_i - bm.mu_z + bm.mu_x * bm.cos * bm.slope) + bm.zdot
+            d_raw = -(np.arctan2(up_base + bm.vtip * dl, ld['UT']) - np.arctan2(up_base, ld['UT']))
+            bm.dalpha_unsteady = wagner_filter(d_raw, ld['UT'], bm.chord, ld['mach'], omega)
+    dlam_f = None
+    if fountain is not None and fountain.strength > 0.01 and thrust > 0:
+        dlam_f = fountain_inflow(bm, lam0, fountain)
+        impose(dlam_f)
+        u, lam0, lam_i, ld, (T, Q) = trim(bm, thrust, controls0=u, cyclic=cyclic)
     dlam = None
     wake = None
     if opts.bvi and bm.mu_x > 0.025 and thrust > 0:
@@ -624,19 +697,27 @@ def solve_rotor(rotor, omega, V, alpha_tpp, thrust, rho, c, nu, opts=None, groun
             dlam, wake = _bvi_inflow(bm, ld, lam0, opts)
             # ramp the impulsive part in over low advance ratios, where the wake model is least certain
             dlam = dlam * float(np.clip((bm.mu_x - 0.025) / 0.03, 0.0, 1.0))
-            bm.extra_lambda = dlam
-            if opts.unsteady:
-                up_base = bm.vtip * (lam_i - bm.mu_z + bm.mu_x * bm.cos * bm.slope) + bm.zdot
-                d_raw = -(np.arctan2(up_base + bm.vtip * dlam, ld['UT']) - np.arctan2(up_base, ld['UT']))
-                bm.dalpha_unsteady = wagner_filter(d_raw, ld['UT'], bm.chord, ld['mach'], omega)
+            impose(dlam if dlam_f is None else dlam + dlam_f)
             u, lam0, lam_i, ld, (T, Q) = trim(bm, thrust, controls0=u, cyclic=cyclic)
     bwi_rms, bwi_scale = (_wake_turbulence(bm, ld, lam0, opts) if thrust > 0 and opts.wake_turbulence > 0
                           else (None, None))
+    if dlam_f is not None:
+        uf = fountain_turbulence(bm, fountain)
+        if bwi_rms is None:
+            bwi_rms, bwi_scale = uf, np.full_like(uf, fountain.clearance)
+        else:
+            u2 = bwi_rms ** 2 + uf ** 2
+            bwi_scale = np.where(u2 > 0, (bwi_rms ** 2 * bwi_scale + uf ** 2 * fountain.clearance)
+                                 / np.maximum(u2, 1e-30), bwi_scale)
+            bwi_rms = np.sqrt(u2)
     base = None
     if dlam is not None:
         keep = bm.extra_lambda, bm.dalpha_unsteady
-        bm.extra_lambda = np.zeros_like(dlam)
-        bm.dalpha_unsteady = None
+        if dlam_f is None:
+            bm.extra_lambda = np.zeros_like(dlam)
+            bm.dalpha_unsteady = None
+        else:
+            impose(dlam_f)
         base = bm.loads(u[0], u[1], u[2], lam_i)
         bm.extra_lambda, bm.dalpha_unsteady = keep
     return AeroSolution(rotor=rotor, omega=omega, R=bm.R, x=bm.x, dx=bm.dx, psi=bm.psi, chord=bm.chord,
@@ -644,6 +725,7 @@ def solve_rotor(rotor, omega, V, alpha_tpp, thrust, rho, c, nu, opts=None, groun
                         beta0=bm.beta0, z=bm.z, zdot=bm.zdot, theta_e=bm.theta_e, UT=ld['UT'], UP=ld['UP'],
                         alpha=ld['alpha'], mach=ld['mach'], cl=ld['cl'], cd=ld['cd'], fz=ld['fz'], ft=ld['ft'],
                         gamma_bound=ld['gamma'], thrust=T, torque=Q, rho=rho, c=c, nu=nu, dlambda_bvi=dlam,
+                        dlambda_fountain=dlam_f,
                         wake=wake, modes=bm.modes, fz_base=None if base is None else base['fz'],
                         ft_base=None if base is None else base['ft'], model=bm, lam_i=lam_i, opts=opts,
                         bwi_rms=bwi_rms, bwi_scale=bwi_scale, ground_effect=bm.k_ge)
@@ -843,6 +925,9 @@ def load_variants(aero, n=8, gust_rms=1.0, gust_scale=20.0, wander_chords=0.25, 
     out = []
     for v in range(n):
         dl_g = -gust_field(bm, rng, gust_rms, gust_scale) / bm.vtip
+        if aero.dlambda_fountain is not None:
+            # the fountain comes and goes: spikes of a strength of their own in each revolution
+            dl_g = dl_g + aero.dlambda_fountain * max(1.0 + 0.5 * rng.normal(), 0.0)
         dl_b = 0.0
         if aero.dlambda_bvi is not None:
             g_z, g_x, g_y = (_smooth_random(rng, npsi, 8) for _ in range(3))

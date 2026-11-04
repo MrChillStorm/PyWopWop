@@ -277,8 +277,9 @@ def _accumulate(out, t_a, f_a, t_b, f_b, t0, dt, nout, periodic):
 @njit(parallel=True, fastmath=True, cache=True)
 def f1a_kernel(src_pos, src_area, src_station, src_weight, is_loading, f_tab, df_tab, z_tab, dz_tab, ddz_tab,
                Om, n_psi, blades, Ux, Uy, Uz, obs, vobs, c, rho, n_start, n_steps, dtau, mod,
-               t0, dt, nout, periodic, nth, stride):
+               t0, dt, nout, periodic, nth, stride, near_only=False):
     """Accumulate thickness (is_loading 0) or loading (1) noise of all elements onto the observer grid.
+    near_only: only the terms falling as 1/r^2, the moving blade's incompressible (hydrodynamic) pressure.
 
     Blade b (b < blades) at step n has azimuth index (n stride + b n_psi / blades) mod n_psi and emission time
     n stride dtau. mod (blades, n_steps + 1): load scale per blade and step (loading only). periodic: wrap the
@@ -322,7 +323,10 @@ def f1a_kernel(src_pos, src_area, src_station, src_weight, is_loading, f_tab, df
                         Az = Az0
                         vn = vx * Ax + vy * Ay + vz * Az
                         dvn = ax * Ax + ay * Ay + az * Az + Om * (-vx * Ay + vy * Ax)
-                        f = rho * (dvn * ir * om * om + vn * (r * dMr + c * (Mr - M2)) * ir * ir * om * om * om)
+                        if near_only:
+                            f = rho * vn * c * (Mr - M2) * ir * ir * om * om * om
+                        else:
+                            f = rho * (dvn * ir * om * om + vn * (r * dMr + c * (Mr - M2)) * ir * ir * om * om * om)
                     else:
                         w = src_weight[e] * mod[b, k]
                         # force on the fluid: minus the blade's (0, ft, fz), rotated; its rate adds the rotation
@@ -339,8 +343,11 @@ def f1a_kernel(src_pos, src_area, src_station, src_weight, is_loading, f_tab, df
                         Fr = Fx * hx + Fy * hy + Fz * hz
                         dFr = dFx * hx + dFy * hy + dFz * hz
                         FM = (Fx * vx + Fy * vy + Fz * vz) / c
-                        f = (dFr * ir * om * om / c + (Fr - FM) * ir * ir * om * om
-                             + Fr * (r * dMr + c * (Mr - M2)) * ir * ir * om * om * om / c)
+                        if near_only:
+                            f = (Fr - FM) * ir * ir * om * om + Fr * (Mr - M2) * ir * ir * om * om * om
+                        else:
+                            f = (dFr * ir * om * om / c + (Fr - FM) * ir * ir * om * om
+                                 + Fr * (r * dMr + c * (Mr - M2)) * ir * ir * om * om * om / c)
                     f *= inv4pi
                     if k > 0:
                         _accumulate(acc, t_prev, f_prev, t, f, t0, dt, nout, periodic)
@@ -350,7 +357,7 @@ def f1a_kernel(src_pos, src_area, src_station, src_weight, is_loading, f_tab, df
 
 
 def _run(src, obs, vobs, n_start, n_steps, t0, dt, nout, periodic, blades, mod=None, parts=("thickness", "loading"),
-         thickness_stride=1):
+         thickness_stride=1, near_only=False):
     dtau = src.period / src.n_psi
     Ux, Uy, Uz = src.U
     if mod is None:
@@ -366,20 +373,20 @@ def _run(src, obs, vobs, n_start, n_steps, t0, dt, nout, periodic, blades, mod=N
                                       src.n_psi, blades, Ux, Uy, Uz, obs, vobs, src.c, src.rho,
                                       n_start // st, n_steps // st + (0 if periodic else 1), dtau,
                                       np.ones((blades, n_steps // st + 2)),
-                                      t0, dt, nout, periodic, nth, st).sum(axis=0)
+                                      t0, dt, nout, periodic, nth, st, near_only).sum(axis=0)
     else:
         out["thickness"] = np.zeros(nout)
     if "loading" in parts:
         out["loading"] = f1a_kernel(src.lp_pos, np.zeros((len(src.lp_pos), 3)), src.lp_station, src.lp_weight, 1,
                                     src.f_tab, src.df_tab, src.z_tab, src.dz_tab, src.ddz_tab, src.omega, src.n_psi,
                                     blades, Ux, Uy, Uz, obs, vobs, src.c, src.rho, n_start, n_steps, dtau, mod,
-                                    t0, dt, nout, periodic, nth, 1).sum(axis=0)
+                                    t0, dt, nout, periodic, nth, 1, near_only).sum(axis=0)
     else:
         out["loading"] = np.zeros(nout)
     return out
 
 
-def periodic_signature(src, observer, n_out=None, thickness_stride=None):
+def periodic_signature(src, observer, n_out=None, thickness_stride=None, near_only=False):
     """One blade's thickness and loading pressure over one revolution at an observer riding with the rotor
     (position relative to the hub, canonical frame). Returns (t, p_thickness, p_loading), t from 0 to the period.
     thickness_stride: emission steps of the thickness panels, in acoustic azimuth steps (default: about 8192 per
@@ -390,7 +397,7 @@ def periodic_signature(src, observer, n_out=None, thickness_stride=None):
     if thickness_stride is None:
         thickness_stride = max(1, src.n_psi // 8192) if thickness_mach(src) < 0.85 else 1
     out = _run(src, obs, -src.U, 0, src.n_psi, 0.0, T / n_out, n_out, True, 1,
-               thickness_stride=thickness_stride)
+               thickness_stride=thickness_stride, near_only=near_only)
     return np.arange(n_out) * T / n_out, out["thickness"], out["loading"]
 
 
@@ -400,10 +407,10 @@ def thickness_mach(src):
     return (src.omega * r_tip + np.linalg.norm(src.U[:2])) / src.c
 
 
-def single_blade_harmonics(src, observer, n_out=None):
+def single_blade_harmonics(src, observer, n_out=None, near_only=False):
     """Complex harmonics of one blade's thickness and loading noise, per rotor harmonic m = 0..n_out/2:
-    p(t) = sum_m Re(2 H_m e^{i m Omega t}) / n_out (rfft convention)."""
-    t, pt, pl = periodic_signature(src, observer, n_out)
+    p(t) = sum_m Re(2 H_m e^{i m Omega t}) / n_out (rfft convention). near_only: their 1/r^2 terms alone."""
+    t, pt, pl = periodic_signature(src, observer, n_out, near_only=near_only)
     return np.fft.rfft(pt), np.fft.rfft(pl), len(t)
 
 

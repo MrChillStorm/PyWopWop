@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from .aero import AeroOptions
+from .atmosphere import Atmosphere
 from .model import FlightCondition, Observer, STANDARD_OBSERVERS
 from .operating import operate
 from .synth import Quality, Variability, render, write_wav
@@ -68,6 +69,9 @@ AIRPLANE_CONDITIONS = [
 ]
 
 
+AIRPLANE_ALTITUDE_M = 3048.0        # a tiltrotor's airplane mode: thin, smooth air, as in its cruise
+
+
 @dataclass
 class BankOptions:
     conditions: list = None
@@ -86,6 +90,8 @@ class BankOptions:
     update: bool = False            # add them to the bank in out_dir at its gains, keeping the rest
     listener_height: float = 1.7
     mode: str = None                # 'airplane': a tiltrotor's airplane mode conditions (default: its helicopter mode)
+    altitude_m: float = None        # the air it flies in, at the conditions' calibrated airspeeds (default: sea level,
+                                    # a tiltrotor's airplane mode at cruise)
     runup: bool = False             # add the ground run-up conditions (with update: render only them)
 
 
@@ -95,6 +101,18 @@ def nominal_rpm(aircraft, rotor, conds):
     if any(c.nacelle_deg < 90.0 for c in conds) and rotor.role in ("main", "lift"):
         return aircraft.airplane_rpm
     return rotor.rpm
+
+
+def flight_condition(aircraft, c, altitude_m=0.0):
+    """The bank condition as flown at altitude_m. A condition's airspeed is calibrated: a simulator fades the loops by
+    its calibrated airspeed, and the thrust and the wing's loads follow the dynamic pressure that stands for, so the
+    true airspeed is the one with sea level's dynamic pressure at that speed."""
+    true_kt = c.airspeed_kt * np.sqrt(Atmosphere(0.0).rho / Atmosphere(altitude_m).rho)
+    return FlightCondition(airspeed_kt=float(true_kt), climb_fpm=c.climb_fpm, nacelle_deg=c.nacelle_deg,
+                           ground_height_m=None if c.ground_clearance_m is None
+                           else aircraft.hub_height_m + c.ground_clearance_m, rpm_percent=c.rpm_percent,
+                           collective_deg=aircraft.main.flat_pitch_deg if c.ground_run else None,
+                           altitude_m=altitude_m)
 
 
 def _observers(aircraft, c, opts):
@@ -144,14 +162,14 @@ def make_bank(aircraft, out_dir, opts=None, progress=print):
     q = Quality.get(opts.quality)
     renders = []
     state = None
+    altitude = opts.altitude_m
+    if altitude is None:
+        altitude = AIRPLANE_ALTITUDE_M if opts.mode == "airplane" else 0.0
     for c in todo:
         ci = [x.name for x in conds].index(c.name)
         if c.ground_run and aircraft.main.flat_pitch_deg is None:
             raise ValueError(f"{aircraft.name}'s main rotor has no flat_pitch_deg (its collective fully down)")
-        fc = FlightCondition(airspeed_kt=c.airspeed_kt, climb_fpm=c.climb_fpm, nacelle_deg=c.nacelle_deg,
-                             ground_height_m=None if c.ground_clearance_m is None
-                             else aircraft.hub_height_m + c.ground_clearance_m, rpm_percent=c.rpm_percent,
-                             collective_deg=aircraft.main.flat_pitch_deg if c.ground_run else None)
+        fc = flight_condition(aircraft, c, altitude)
         state = operate(aircraft, fc, AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth))
         for o in _observers(aircraft, c, opts):
             cabin = aircraft.cabin if o.position is not None else None
@@ -213,7 +231,7 @@ def make_bank(aircraft, out_dir, opts=None, progress=print):
                     rotors={r.name: dict(nominal_rpm=nominal_rpm(aircraft, r, conds), blades=r.blades, role=r.role)
                             for r in aircraft.rotors},
                     pitch_headroom=opts.pitch_headroom, conditions=[asdict(c) for c in conds],
-                    hub_height_m=aircraft.hub_height_m,
+                    hub_height_m=aircraft.hub_height_m, altitude_m=altitude,
                     observers=[dict(name=o.name, azimuth_deg=o.azimuth_deg, elevation_deg=o.elevation_deg,
                                     distance_m=o.distance_m, position=o.position) for o in observers],
                     files=entries)

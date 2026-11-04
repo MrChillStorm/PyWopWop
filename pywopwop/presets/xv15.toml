@@ -8,6 +8,9 @@ drag_area_m2 = 1.6
 download = 0.10              # the wing under the rotors
 cockpit = [4.5, -0.3, -1.4]
 hub_height_m = 4.4               # main rotor hub above the ground on the gear
+# the wing under the discs (|y|, leading edge x, chord, chord line z, half thickness): 1.6 m of chord with its mid chord
+# under the hubs, the discs 0.386 R above it (George, NASA CR-203040)
+wing = [[0.0, 0.8, 1.6, -1.47, 0.12], [4.9, 0.8, 1.6, -1.47, 0.12]]
 
 [[rotor]]
 name = "right"

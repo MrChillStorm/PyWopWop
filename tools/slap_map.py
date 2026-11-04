@@ -43,7 +43,7 @@ def point(args):
     obs = [Observer("cockpit", position=tuple(ac.cockpit)) if o == "cockpit" else STANDARD_OBSERVERS[o] for o in observers]
     for o in obs:
         r = render(ac, fc, o, duration=duration, quality=q, state=st, variability=Variability(seed=1),
-                   cabin=8.0 if o.name == "cockpit" else None)
+                   cabin=ac.cabin if o.name == "cockpit" else None)
         lv = r.levels()
         out["levels"][o.name] = {k.split("/")[-1]: dict(oaspl=round(v["oaspl"], 2), dba=round(v["dba"], 2))
                                  for k, v in lv.items() if k in ("layer/slap", "total")}

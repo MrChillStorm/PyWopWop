@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .aero import AeroOptions, solve_rotor
+from .aero import Fountain, AeroOptions, solve_rotor
 from .atmosphere import G0, Atmosphere
 from .model import Aircraft, FlightCondition
 
@@ -74,7 +74,8 @@ def _frame(z_axis, U_h, fallback_aft, spin):
 
 def operate_airplane(aircraft, cond, opts):
     """A tiltrotor in airplane mode (nacelles 0): the wing carries the weight, the rotors pull the drag. The angle of
-    attack and each rotor's thrust from the aircraft's level-flight trims at its airspeed; in a climb or descent the
+    attack and each rotor's thrust from the aircraft's level-flight trims at the speed with the same dynamic pressure
+    at the trims' altitude (a level trim holds by dynamic pressure, not true airspeed); in a climb or descent the
     weight's component along the path is added to the thrust, the angle of attack kept. The rotors' shafts along the
     body's x axis, their tip-path planes normal to them."""
     if not aircraft.airplane_trim or not aircraft.airplane_rpm:
@@ -83,15 +84,16 @@ def operate_airplane(aircraft, cond, opts):
         raise ValueError("between helicopter and airplane mode (nacelles 0 < x < 90) is not modelled")
     atm = Atmosphere(cond.altitude_m, cond.dT, cond.humidity)
     tab = np.asarray(aircraft.airplane_trim, float)
-    if not tab[0, 0] <= cond.airspeed_kt <= tab[-1, 0]:
-        raise ValueError(f"airplane mode trims cover {tab[0, 0]:g}-{tab[-1, 0]:g} kt")
+    v_trim = cond.airspeed_kt * np.sqrt(atm.rho / Atmosphere(aircraft.airplane_trim_m).rho)
+    if not tab[0, 0] <= v_trim <= tab[-1, 0]:
+        raise ValueError(f"airplane mode trims cover {tab[0, 0]:g}-{tab[-1, 0]:g} kt at {aircraft.airplane_trim_m:g} m")
     mass = cond.mass_kg or aircraft.mass_kg
     W = mass * G0 * cond.load_factor
     vel = cond.velocity
     V = np.linalg.norm(vel)
-    alpha = np.radians(np.interp(cond.airspeed_kt, tab[:, 0], tab[:, 1]))
+    alpha = np.radians(np.interp(v_trim, tab[:, 0], tab[:, 1]))
     lifting = [r for r in aircraft.rotors if r.role in ("main", "lift")]
-    thrust = np.interp(cond.airspeed_kt, tab[:, 0], tab[:, 2]) + W * np.sin(cond.gamma) / (len(lifting) * np.cos(alpha))
+    thrust = np.interp(v_trim, tab[:, 0], tab[:, 2]) + W * np.sin(cond.gamma) / (len(lifting) * np.cos(alpha))
     if thrust <= 0:
         raise ValueError("the descent is too steep: the rotors would windmill")
     pitch = cond.gamma + alpha
@@ -109,6 +111,25 @@ def operate_airplane(aircraft, cond, opts):
         pt.aero = solve_rotor(rot, omega, V, a, thrust, atm.rho, atm.c, atm.nu, opts)
         points.append(pt)
     return OperatingState(aircraft, cond, atm, pitch, pitch, points, vel)
+
+
+def _fountain(aircraft, rot, other, M, Rbh, thrust, rho, V):
+    """The wing under a tiltrotor's disc in the rotor's frame (nacelles vertical), None without one: the downwash it
+    turns back up through the discs, gone with the download by 15 m/s, as the wake is swept off the wing"""
+    if not aircraft.wing or other is None:
+        return None
+    w = np.asarray(aircraft.wing, float)
+    hub = np.asarray(rot.position, float)
+    y = max(abs(hub[1]) - 0.75 * rot.radius, w[0, 0])
+    le, chord, z = (float(np.interp(y, w[:, 0], w[:, k])) for k in (1, 2, 3))
+    to_other = M @ (Rbh @ (np.asarray(other.position, float) - hub))
+    aft = M @ (Rbh @ np.array([-1.0, 0.0, 0.0]))
+    psi = float(np.arctan2(to_other[1], to_other[0]))
+    v_hover = float(np.sqrt(thrust / (2.0 * rho * np.pi * rot.radius ** 2)))
+    return Fountain(psi_inboard=psi, aft_sign=float(np.sign(-np.sin(psi) * aft[0] + np.cos(psi) * aft[1])),
+                    mid_chord_ahead=le - 0.5 * chord - float(hub[0]), leading_edge_ahead=le - float(hub[0]),
+                    chord=chord, clearance=abs(z - float(hub[2])), v_hover=v_hover,
+                    strength=max(0.0, 1.0 - V / 15.0))
 
 
 def _at_collective(rot, omega, theta75, rho, c, nu, opts, ground_height, w_ref):
@@ -178,7 +199,9 @@ def operate(aircraft, condition=None, opts=None, rpm_scale=None):
                                      W / len(lifting))
             pt.thrust = thrust = pt.aero.thrust
         else:
-            pt.aero = solve_rotor(rot, omega, V, alpha, thrust, rho, c, nu, opts, pt.ground_height)
+            other = next((r for r in lifting if r is not rot), None)
+            pt.aero = solve_rotor(rot, omega, V, alpha, thrust, rho, c, nu, opts, pt.ground_height,
+                                  _fountain(aircraft, rot, other, M, Rbh, thrust, rho, V))
         if pt.ground_height is not None:
             # the downwash spreads over the ground and comes back up through the rotor: turbulence of an assumed
             # 20 % of the hover induced velocity next to the ground, gone by a hub height of three radii, and

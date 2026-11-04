@@ -144,7 +144,7 @@ def cmd_bank(a):
     ac = load_aircraft(a.aircraft)
     opts = BankOptions(observers=a.observers, cockpit=not a.no_cockpit, duration=a.duration, fs=a.fs,
                        bits=a.bits, quality=a.quality, pitch_headroom=a.headroom, only=a.conditions,
-                       update=a.update, mode=a.mode, runup=a.runup)
+                       update=a.update, mode=a.mode, runup=a.runup, altitude_m=a.altitude)
     t0 = time.time()
     print(f"{ac.name}: rendering the bank into {a.output}")
     m = make_bank(ac, a.output, opts)
@@ -239,7 +239,8 @@ def cmd_engine_bank(a):
     from .engine import make_engine_bank
     t0 = time.time()
     print(f"{a.aircraft}: rendering the engines' bank into {a.output}")
-    m = make_engine_bank(a.aircraft, a.output, distance=a.dist, fs=a.fs, duration=a.duration, bits=a.bits, like=a.like)
+    m = make_engine_bank(a.aircraft, a.output, distance=a.dist, fs=a.fs, duration=a.duration, bits=a.bits, like=a.like,
+                         nacelle_deg=a.nacelle)
     gains = ", ".join(f"{k} {v:+.1f} dB" for k, v in m["gain_db"].items())
     print(f"{len(m['files'])} loops, gains {gains}, {time.time() - t0:.0f} s; FlightGear section: "
           f"{Path(a.output) / 'pywopwop-engines.xml'}")
@@ -308,6 +309,8 @@ def main(argv=None):
                    help="add the conditions to the existing bank in the output directory, at its gains")
     s.add_argument("--mode", choices=("helicopter", "airplane"), default="helicopter",
                    help="tiltrotors: the helicopter mode's conditions, or the airplane mode's (nacelles 0)")
+    s.add_argument("--altitude", type=float, help="the air the bank flies in, m (default: sea level; airplane mode "
+                   "3048, its cruise)")
     s.add_argument("--runup", action="store_true",
                    help="add the rotor's run-up on the ground at flat pitch (with --update: render only it)")
     s.set_defaults(fn=cmd_bank)
@@ -317,7 +320,8 @@ def main(argv=None):
     s.add_argument("--gain-from", help="a bank's directory: its cockpit gain (the wind's loudness against its loops)")
     s.add_argument("--duration", type=float, default=15.0)
     s.add_argument("--fs", type=float, default=48000.0)
-    s.add_argument("--surface-mass", type=float, default=8.0, help="the windscreen's, kg/m^2 (the cabin's mass law)")
+    s.add_argument("--surface-mass", type=float, default=None,
+                   help="a limp windscreen of this surface mass, kg/m^2 (default: the cabin's windows)")
     s.set_defaults(fn=cmd_wind)
     s = sub.add_parser("flyover", help="render a fly-by past a listener on the ground")
     _add_flight(s)
@@ -391,6 +395,8 @@ def main(argv=None):
     s.add_argument("-o", "--output", required=True)
     s.add_argument("--like", help="a rotor bank (folder or manifest.json) whose gains to use")
     s.add_argument("--dist", type=float, default=50.0, help="outside listener's distance on the ground, m")
+    s.add_argument("--nacelle", type=float, default=90.0,
+                   help="tiltrotors: the nacelles' angle, deg (90 helicopter mode, 0 airplane mode)")
     s.add_argument("--duration", type=float, default=15.0)
     s.add_argument("--fs", type=float, default=48000.0)
     s.add_argument("--bits", type=int, choices=(16, 24, 32), default=16)

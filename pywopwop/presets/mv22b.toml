@@ -15,11 +15,52 @@ download = 0.10              # the wing under the rotors, flaperons at 67 deg: 9
 cockpit = [4.28, -0.57, -3.15]   # the right seat's eye, from the FlightGear 3-D model
 hub_height_m = 5.20          # hubs above the ground on the gear, nacelles vertical (3-D model)
 windscreen_m = 2.1           # the windscreen's centroid from the nose's tip (3-D model: 2.09 m)
+# the skin round the cockpit and the cabin open to it, from the 3-D model (x, half-width, floor and roof z, and the
+# section's squareness): the cabin's boxy section from its aft end to the cockpit (straight sides to sharp shoulders,
+# a superellipse of exponent 8 to its vertices), the nose's rounder taper ahead of it. In airplane mode the
+# proprotors' tips pass 0.21 m from its shoulders at x = 2 m, just behind the pilots
+# the cockpit's windscreen and side windows on it, from the 3-D model (x from, x to, z from, z to; both sides)
+glazing = [[3.5, 5.6, -4.1, -2.56]]
+fuselage = [[-4.5, 1.16, -4.79, -2.52, 8.0], [4.0, 1.16, -4.79, -2.51, 8.0], [4.5, 1.13, -4.78, -2.51, 4.0],
+            [5.0, 1.06, -4.78, -2.60, 4.0], [5.5, 0.91, -4.70, -3.00, 4.0], [6.0, 0.69, -4.64, -3.30, 4.0],
+            [6.5, 0.51, -4.52, -3.65, 4.0]]
+# the wing over the fuselage's top, from the 3-D model (|y|, leading edge x, chord, chord line z, half thickness): in
+# airplane mode its leading edge 0.3 to 0.6 m behind the discs; the tip circles, seen along the axes, cross it at its
+# roots
+wing = [[0.0, 2.0, 2.87, -2.32, 0.35], [1.3, 1.85, 2.87, -2.32, 0.35], [6.4, 1.48, 2.87, -2.02, 0.27]]
 # airplane mode (nacelles 0, 84 % = 333.5 rpm): the flight model's level trims at 47,500 lb, 1000 ft (true airspeed kt,
 # angle of attack deg, each rotor's thrust N); the wing (and fuselage and tail) carry 41,000 lb of it
 airplane_rpm = 333.5
+airplane_trim_m = 305.0
 airplane_trim = [[160, 8.81, 14377], [180, 7.01, 12660], [200, 6.22, 11138], [220, 4.76, 11401], [250, 3.03, 12918],
                  [270, 2.20, 14248]]
+
+# The walls of the cockpit and the cabin open to it (estimated): a trimmed sidewall, the composite skin with its
+# frames (about 2 mm of carbon laminate, its frames and stringers as much again: coincidence near 4.5 kHz, damped) and
+# a trim panel 75 mm inside it with insulation blankets between (a double wall: its mass-air-mass resonance near 135
+# Hz, above it far tighter than one wall; both walls' mass so that the proprotors' lines stand out of the broadband
+# from 50 to 200 Hz as they do in the recording); the cockpit's glazing a laminated windscreen and side windows (coincidence near 1.5 kHz, its interlayers
+# damping the dip), where the 3-D model has them (glazing); sealed, with leaks at -40 dB; the trimmed cabin's default
+# absorption.
+[cabin]
+surface_mass = 7.0
+coincidence_hz = 4500.0
+loss_factor = 0.3
+trim_mass = 4.0
+trim_gap = 0.075
+window_share = 0.07
+window_mass = 20.0
+window_coincidence_hz = 1500.0
+window_loss_factor = 0.3
+leak = 1e-4
+# where the vortices strike the wing it is bolted to the cabin's roof frames, and its loads reach the cabin through
+# them (wing.structure_borne): the power they feed in is the structure's input mobility there, measured from the
+# recording (so the proprotors' 14th to 30th harmonics stand out of the broadband as they do there, 6 dB): 5.6e-4
+# s/kg, 9 dB under the cabin skin's own, about what a wing box's thick skins and spars (a tenth) make of it
+wing_mobility = 5.6e-4
+# which harmonics land on the cabin's resonances isn't known, so one draw of its modal response: of 64, the one whose
+# blade pulsing, band by band, comes nearest the recording's without standing out more than it does
+modes_seed = 55
 
 [[rotor]]
 name = "right"
@@ -51,6 +92,10 @@ airfoil = { name = "XN12", table = "xn12_v22", thickness = 0.12, cm0 = -0.03 }
 [[rotor]]
 name = "left"
 role = "lift"
+# the interconnect shaft holds the two rotors' blades this far out of step, measured from the recording: below the
+# cockpit's lowest mode their pressures add coherently, and only here do its 1st and 2nd harmonics (16.6, 33 Hz) both
+# fit (in step, the 2nd stands 12 dB over the recording's)
+index_deg = 26.4
 radius = 5.804
 blades = 3
 rpm = 412.0
@@ -68,3 +113,61 @@ axis = [0.0, 0.0, 1.0]
 coning_frequency = 1.16
 torsion_frequency = 7.4
 airfoil = { name = "XN12", table = "xn12_v22", thickness = 0.12, cm0 = -0.03 }
+
+# Two AE 1107C (presets/engines/ae1107c.toml), one in each nacelle on the proprotor's axis, turning with it about the
+# conversion axis (positions and axes nacelles vertical, as the rotors'): the inlet just below the proprotor gearbox,
+# opening along the nacelle (up in helicopter mode, forward in airplane mode); the exhaust at the nacelle's far end,
+# down in helicopter mode and aft in airplane mode. Positions estimated from the airframe's layout. Played by the
+# flight model's engine properties; the power turbine turns with the proprotors (drive/nr-pct). The flight model has
+# no starter: its engines spool up lit from rest. Measured: in airplane mode an MV-22B's cockpit recorded in cruise
+# behind the pilots has no whine standing more than 2 dB out of the broadband from 6 to 8 kHz, where the model's would
+# stand 11.6 dB out, while at a cabin window the model's whine stands 4.4 dB out and the recording's 3 to 5 (README,
+# Checks). So the paths from the nacelles forward to the cockpit lose 18 dB the model doesn't resolve; they cross the
+# proprotor's disc and slipstream, and pass the nacelle and the wing, though the turning blades alone, a tenth of the
+# disc, would block far less. None with the nacelles up: the paths pass under the disc, as the window's passes behind.
+[[engine]]
+name = "right"
+type = "ae1107c"
+pivot = [0.306, -7.04, -1.732]
+inlet = [0.556, -7.04, -1.132]
+inlet_axis = [0.0, 0.0, 1.0]
+exhaust = [0.206, -7.04, -3.732]
+exhaust_axis = [0.0, 0.0, -1.0]
+properties = "/fdm/jsbsim/eng[0]"
+n2_property = "/fdm/jsbsim/drive/nr-pct"
+cockpit_db = [[0.0, -18.0], [90.0, 0.0]]
+
+[[engine]]
+name = "left"
+type = "ae1107c"
+pivot = [0.306, 7.04, -1.732]
+inlet = [0.556, 7.04, -1.132]
+inlet_axis = [0.0, 0.0, 1.0]
+exhaust = [0.206, 7.04, -3.732]
+exhaust_axis = [0.0, 0.0, -1.0]
+properties = "/fdm/jsbsim/eng[1]"
+n2_property = "/fdm/jsbsim/drive/nr-pct"
+cockpit_db = [[0.0, -18.0], [90.0, 0.0]]
+
+# The drive as heard in the cockpit, measured from an MV-22B's cockpit recorded in airplane-mode cruise (83.7 % rotor
+# speed, about 46 % torque): the drive's and engines' vibration reaching the cabin's frames through the wing (the
+# engines, proprotor gearboxes, interconnect shaft and mid-wing gearbox all sit in or on it), a steady roar strongest
+# by the wing's root, with the recording's own spectrum from 40 Hz to 12 kHz (its floor between the lines), its
+# level so that the proprotors' harmonics up to the 10th stand out of it as they do in the recording (the higher
+# ones the model lacks: README, Checks); and two gear meshes at their recorded prominence (8.17 kHz there: 39 times the power turbine's
+# shaft rate, the engine's output gear; 2.03 kHz, its shaft not identified). Played by the rotor speed and the
+# engines' torque.
+[transmission]
+tones = [[2430.0, 65.4, 6.62], [9759.0, 48.7, 6.62]]
+bands = [[47, 80.4], [60, 84.4], [74, 81.7], [94, 89.0], [118, 87.1], [149, 88.8], [188, 90.7], [237, 94.9], [299, 94.0], [376, 93.5], [474, 94.5], [597, 92.6], [753, 90.9],
+         [948, 90.0], [1195, 85.9], [1505, 82.0], [1897, 79.2], [2389, 76.6], [3011, 73.3], [3793, 73.5], [4779, 69.7],
+         [6021, 65.9], [7586, 65.2], [9558, 60.1], [12042, 59.6]]
+reference_torque_pct = 46.0
+rpm_property = "/fdm/jsbsim/drive/nr-pct"
+rpm_nominal = 100.0
+# in the recording the whole broadband from 500 Hz to 12 kHz swells and fades by 1 dB once a blade pass (0.8 to 1.3 dB
+# peak to peak, as deep in passes with weak low pulses as with strong ones: not the camera's gain): the meshes' load
+# rippling 6 % with the proprotors' torque as each blade passes the wing, at their blade-passing rate (19.85 Hz at
+# 100 %)
+ripple = [19.85, 0.06]
+torque_properties = ["/fdm/jsbsim/eng[0]/torque-pct", "/fdm/jsbsim/eng[1]/torque-pct"]

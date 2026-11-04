@@ -120,6 +120,7 @@ class Rotor:
     tip_sweep_deg: float = 0.0       # aft sweep of the tip
     tip_sweep_start: float = 1.0     # r/R where the sweep starts
     tip_loss: float = 0.97           # Prandtl tip loss is used; this is the vortex release radius r/R
+    index_deg: float = 0.0           # its blades' azimuth behind the first rotor's, on a shaft tying them together
     round_tip: bool = False
     position: tuple = (0.0, 0.0, 0.0)          # hub, aircraft frame
     axis: tuple = (0.0, 0.0, 1.0)              # thrust direction, aircraft frame
@@ -211,7 +212,13 @@ class Cabin:
     coincidence frequency, and Sharp's above it, TL = 20 log10(m f) + 10 log10(2 eta f / (pi f_c)) - 47 dB, joined
     linearly (in log frequency) between: the dip where the panel's bending waves match the sound's trace on it lets a
     turbine's whine through far more than the mass law says. The areas' transmission coefficients add (composite
-    transmission): an open door's or window's area passes everything."""
+    transmission): an open door's or window's area passes everything.
+
+    Inside, the transmitted sound builds up in a diffuse field as the cockpit's absorption lets it (inside): p^2 = tau
+    p_out^2 / alpha, the walls losing a share alpha of what meets them (absorbed, or let out through them; what is
+    open, all of it). A trimmed cabin's blankets, trim, seats and crew absorb little below 250 Hz and most of it above
+    1 kHz, so the lows build up and the highs don't, though the lowest leak back out through the walls: without it a cockpit is as bright as an anechoic one would be. Below the cockpit's lowest mode there
+    is no diffuse field to build up (faded in over the octave below it)."""
     surface_mass: float = 8.0           # kg/m^2: skin, frames and trim
     coincidence_hz: float = None        # the skin's coincidence frequency (None: a limp wall, the mass law alone)
     loss_factor: float = 0.02
@@ -222,6 +229,22 @@ class Cabin:
     leak: float = 1e-3                  # area share open with everything shut (seals, gaps): -30 dB
     openings: list = field(default_factory=list)    # [{name, share, property}]: what opens, its share of the
                                                     # walls' area, the FlightGear property of its opening (0..1)
+    # the interior's absorption coefficient by frequency ([Hz, alpha]; empty: none, as anechoic): a trimmed cabin's
+    # glass-fibre blankets behind trim panels, its seats and crew (estimated)
+    absorption: list = field(default_factory=lambda: [[125.0, 0.15], [250.0, 0.30], [500.0, 0.55], [1000.0, 0.70],
+                                                      [2000.0, 0.75], [4000.0, 0.75]])
+    first_mode_hz: float = 70.0         # the cockpit's lowest acoustic mode, c / 2L for its 2.5 m length
+    # a trimmed sidewall: the skin (surface_mass, its coincidence) and a trim panel of trim_mass kg/m^2 trim_gap m
+    # inside it, the gap filled with blankets (a double wall); None: one wall of surface_mass
+    trim_mass: float = None
+    trim_gap: float = 0.075
+    # the structure under the skin, for what reaches the cabin through it (wing.structure_borne): its frames' and
+    # stringers' pitch (m), the panels between them radiating, and the built-up structure's loss factor (estimated)
+    frame_pitch: float = 0.5
+    stringer_pitch: float = 0.2
+    structure_loss_factor: float = 0.03
+    wing_mobility: float = None     # s/kg where a wing's loads enter the structure (None: the skin's, pi f_c / 4 m c^2)
+    modes_seed: int = 0             # which draw of the cabin's modal response (synth.wall_field)
 
     @property
     def open_share(self):
@@ -241,12 +264,94 @@ class Cabin:
         tl = np.where(f < 0.5 * fc, mass, np.where(f < fc, at_half + u * (at_fc - at_half), sharp))
         return np.maximum(tl, 0.0)
 
+    def opaque_tl(self, f, dip=True):
+        """the opaque walls' transmission loss: the skin's, or with a trim panel the double wall's (Fahy): the mass
+        law of both together below their mass-air-mass resonance f_0, then TL_skin + TL_trim + 20 log10(2 k d) up to
+        c / 2 pi d, and TL_skin + TL_trim + 6 dB above (the blankets damping the gap's modes). dip: the skin's
+        coincidence dip (sound's; a convected field's eddies meet none)"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        skin = self.panel_tl(f, self.surface_mass, self.coincidence_hz if dip else None, self.loss_factor)
+        if not self.trim_mass:
+            return skin
+        m1, m2, d = self.surface_mass, self.trim_mass, self.trim_gap
+        both = self.panel_tl(f, m1 + m2, None, 0.0)
+        tl2 = self.panel_tl(f, m2, None, 0.0)
+        f0 = np.sqrt(1.2 * 340.0 ** 2 * (m1 + m2) / (d * m1 * m2)) / (2.0 * np.pi)
+        fd = 340.0 / (2.0 * np.pi * d)
+        mid = np.maximum(skin + tl2 + 20.0 * np.log10(np.maximum(2.0 * (2.0 * np.pi * f / 340.0) * d, 1e-9)), both)
+        return np.where(f < f0, both, np.where(f < fd, mid, skin + tl2 + 6.0))
+
     def tau(self, f, doors_open=False):
         """the walls' transmission coefficient (power) at the frequencies f, with every opening open or shut"""
-        skin = 10.0 ** (-self.panel_tl(f, self.surface_mass, self.coincidence_hz, self.loss_factor) / 10.0)
+        skin = 10.0 ** (-self.opaque_tl(f) / 10.0)
         win = 10.0 ** (-self.panel_tl(f, self.window_mass, self.window_coincidence_hz, self.window_loss_factor) / 10.0)
         opening = self.leak + (self.open_share if doors_open else 0.0)
         return (1.0 - self.window_share - opening) * skin + self.window_share * win + opening
+
+    def patch_tau(self, f, glazed, doors_open=False):
+        """one wall patch's transmission of sound: the windows' (glazed) or the opaque walls', and what is open"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        T = (10.0 ** (-self.panel_tl(f, self.window_mass, self.window_coincidence_hz, self.window_loss_factor) / 10.0)
+             if glazed else 10.0 ** (-self.opaque_tl(f) / 10.0))
+        opening = self.leak + (self.open_share if doors_open else 0.0)
+        return (1.0 - opening) * T + opening
+
+    def convected(self, f, speed, glazed=None, c0=340.0):
+        """what a wall passes of a pressure field convected along it at `speed` (m/s), a boundary layer's eddies or a
+        passing blade's footprint: by the mass law (the opaque walls' as a double wall with a trim), coupled poorly
+        below its hydrodynamic coincidence f_c (speed / c)^2, where its bending waves are slower than the field (a
+        limp panel couples fully); no leaks. glazed: a window (True), the opaque walls (False), or both by their
+        shares (None)"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+
+        def coupling(fc):
+            if not fc:
+                return 1.0
+            r = (f / (fc * (speed / c0) ** 2)) ** 2
+            return r / (1.0 + r)
+        win = coupling(self.window_coincidence_hz) * 10.0 ** (-self.panel_tl(f, self.window_mass, None, 0.0) / 10.0)
+        opaque = coupling(self.coincidence_hz) * 10.0 ** (-self.opaque_tl(f, dip=False) / 10.0)
+        if glazed is None:
+            return (1.0 - self.window_share) * opaque + self.window_share * win
+        return win if glazed else opaque
+
+    def alpha(self, f, doors_open=False):
+        """the share of the sound's energy lost at each reflection inside: what the interior absorbs and what the walls
+        let out (their transmission, what is open all of it), which at low frequencies is the most of it; 1 without
+        an absorption table"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        if not self.absorption:
+            return np.ones_like(f)
+        t = np.asarray(self.absorption, float)
+        a = np.interp(np.log(f), np.log(t[:, 0]), t[:, 1])
+        out = self.tau(f, doors_open)
+        return a * (1.0 - out) + out
+
+    def room(self, f, doors_open=False):
+        """the interior's build-up of the transmitted power, 1 / alpha, faded in from half the lowest mode to it"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        return self.alpha(f, doors_open) ** -np.clip(np.log2(f / (0.5 * self.first_mode_hz)), 0.0, 1.0)
+
+    def direct(self, f, r, area, total_area, doors_open=False):
+        """a wall patch's direct field at a listener r away (m), over its share of the diffuse field: by Sabine's
+        room, p^2 = W rho c (1 / (2 pi r^2) + 4 / (S alpha)), which for a patch of area A passing tau of the
+        outside's intensity is A / (8 pi r^2) against A / (S alpha); r no closer than half the patch's size, and none
+        below the lowest mode, where the cabin is one pressure chamber"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        r = max(float(r), 0.5 * np.sqrt(area))
+        g = total_area * self.alpha(f, doors_open) / (8.0 * np.pi * r * r)
+        return g * np.clip(np.log2(f / (0.5 * self.first_mode_hz)), 0.0, 1.0)
+
+    def inside(self, f, doors_open=False):
+        """the sound's power at the pilot over the outside's: the walls' transmission and the interior's build-up"""
+        return self.tau(f, doors_open) * self.room(f, doors_open)
+
+    def near_field_share(self, f, speed, c0=340.0, glazed=None):
+        """what the walls (or one patch: glazed True / False) pass of a convected field over what all of them pass of
+        sound (the cabin filter's), at most what the patch passes of sound"""
+        f = np.maximum(np.asarray(f, float), 1e-3)
+        sound = self.tau(f) if glazed is None else self.patch_tau(f, glazed)
+        return np.minimum(self.convected(f, speed, glazed, c0), sound) / np.maximum(self.tau(f), 1e-300)
 
 
 @dataclass
@@ -263,9 +368,21 @@ class Aircraft:
     # The level-flight trims at mass_kg, [[true airspeed kt, angle of attack deg, thrust N of each lifting rotor], ...]
     # (e.g. from a flight model), and the rotor speed (rpm)
     airplane_trim: list = None
+    airplane_trim_m: float = 0.0    # the altitude those trims are at, m
     airplane_rpm: float = None
     windscreen_m: float = None      # the windscreen's distance aft of the nose (m): the cockpit's wind (wind.py)
     cabin: Cabin = None             # the cockpit's walls (default: a limp 8 kg/m^2 wall with -30 dB of leaks)
+    # the outer skin round the cockpit and the cabin open to it, by sections [x, half-width, floor z, roof z] and
+    # optionally their squareness (a superellipse's exponent, 4 by default: higher boxier) (aircraft frame, m): inside,
+    # the rotors are heard through the pressure on it (synth.wall_field); without it, at the listener's head
+    fuselage: list = None
+    # its windows on that skin, as boxes [x from, x to, z from, z to] (both sides): their patches pass through the
+    # cabin's window panel, the rest through its opaque walls (without: every patch both, by window_share)
+    glazing: list = None
+    # a tiltrotor's wing, by sections [|y|, leading edge x, chord, chord line z, half thickness] (aircraft frame, m): in
+    # airplane mode behind the discs, the blades' vortices sweep over it and its unsteady lift adds to their harmonics
+    # (wing.py); the skin it sits on is out of the outside air
+    wing: list = None
 
     def __post_init__(self):
         self.rotors = [r if isinstance(r, Rotor) else Rotor(**r) for r in self.rotors]
@@ -314,6 +431,46 @@ class FlightCondition:
         """Aircraft velocity in the heading frame (x forward level, y left, z up), m/s."""
         vh = self.V * np.cos(self.gamma) if self.V > 0.5 else 0.0
         return np.array([vh, 0.0, self.climb_fpm * FPM])
+
+
+def glazed_patches(P, boxes):
+    """which wall patches (centres P, aircraft frame) lie in the glazing's boxes [x from, x to, z from, z to]"""
+    P = np.asarray(P, float)
+    g = np.zeros(len(P), bool)
+    for x0, x1, z0, z1 in boxes or []:
+        g |= (P[:, 0] >= x0) & (P[:, 0] <= x1) & (P[:, 2] >= z0) & (P[:, 2] <= z1)
+    return g
+
+
+def wall_patches(sections, dx=0.5, n_around=8, offset=0.03):
+    """The fuselage's skin round the cockpit and cabin in patches: from its sections [x, half-width, floor z, roof z]
+    and optionally the section's squareness (linear between them), each slice dx long a rounded rectangle (a
+    superellipse, of exponent 4 unless the sections give theirs: higher is boxier, its shoulders sharper) cut into
+    n_around sectors of equal angle. Returns the patches' centres, offset m outside the skin (where the outside field
+    is computed), and their areas (m^2)."""
+    s = np.asarray(sorted(sections), float)
+    if s.shape[1] < 5:
+        s = np.c_[s, np.full(len(s), 4.0)]
+    x0, x1 = s[0, 0], s[-1, 0]
+    n = max(1, int(round((x1 - x0) / dx)))
+    xs = x0 + (np.arange(n) + 0.5) * (x1 - x0) / n
+    th = np.linspace(-np.pi, np.pi, 64 * n_around + 1)
+    pos, area = [], []
+    for x in xs:
+        hw, zf, zr, ex = (np.interp(x, s[:, 0], s[:, k]) for k in (1, 2, 3, 4))
+        zc, b = 0.5 * (zf + zr), 0.5 * (zr - zf)
+        c, sn = np.cos(th), np.sin(th)
+        y = hw * np.sign(c) * np.abs(c) ** (2.0 / ex)
+        z = zc + b * np.sign(sn) * np.abs(sn) ** (2.0 / ex)
+        seg = np.hypot(np.diff(y), np.diff(z))
+        for k in range(n_around):
+            j = slice(64 * k, 64 * (k + 1))
+            m = 64 * k + 32
+            out = np.array([y[m], z[m] - zc])
+            out /= max(np.linalg.norm(out), 1e-9)
+            pos.append((x, y[m] + offset * out[0], z[m] + offset * out[1]))
+            area.append(seg[j].sum() * (x1 - x0) / n)
+    return np.array(pos), np.array(area)
 
 
 @dataclass

@@ -24,6 +24,13 @@ class BroadbandOptions:
     f_hi: float = 20000.0
 
 
+def air_turbulence(altitude_m):
+    """The rms turbulence the blades meet (m/s, at BroadbandOptions' 2 m scale) by height: the surface layer's up to
+    300 m, a quarter of it above 1000 m, in the smooth air over it (checked in an MV-22B's cruise at 10,000 ft: the
+    proprotors' low harmonics stand as far out of their inflow noise as the recording's)."""
+    return float(np.interp(altitude_m, [300.0, 1000.0], [0.8, 0.2]))
+
+
 @dataclass
 class SpectralHistory:
     t: np.ndarray                   # (Nt,) over one revolution

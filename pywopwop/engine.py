@@ -33,9 +33,11 @@ wander by a tenth of a percent, and the combustion's roar swells and fades. All 
 Not modelled: the gas generator turbine's and the centrifugal stage's sound (the blade rows downstream and upstream
 of them block it), the power turbine's while it runs the rotor up (GE's correlation doesn't reach so far off its
 design), the igniters' sparks (no data on the exciter), the light-off itself (the heat release's monopole is a pulse
-of about 10 Hz, below hearing), the APU (the flight model has none) and the engine's structure-borne path.
+of about 10 Hz, below hearing), the APU (the flight model has none), the engine's structure-borne path, and a
+tiltrotor's proprotor chopping the inlet's whine at its blade-passing frequency (a recording beside an MV-22B's
+nacelle has it).
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 import tomllib
@@ -158,10 +160,31 @@ class Installation:
     exhaust_axis: tuple = (-1.0, 0.0, 0.0)       # along the jet
     properties: str = "/engines/engine[0]"       # n1-pct, n2-pct, running, fuel-flow-pph
     starter_property: str = None                 # true while the starter cranks (default: <properties>/cranking)
+    n2_property: str = None                      # the power turbine's speed, % (default: <properties>/n2-pct)
+    pivot: tuple = None                          # tiltrotors: the nacelle's conversion axis (along y); the positions
+                                                 # and axes are the helicopter mode's (nacelle 90 deg) and turn about it
+    cockpit_db: list = None                      # [[nacelle deg, dB], ...]: what the paths to the cockpit lose that the
+                                                 # model doesn't resolve (measured), by the nacelle's angle
+    inside_db: float = 0.0                       # that loss at this installation's angle
+
+    def tilted(self, nacelle_deg):
+        """the installation with the nacelle at nacelle_deg (90: as given), turned forward about the pivot, with its
+        cockpit loss at that angle"""
+        t_db = np.asarray(self.cockpit_db, float) if self.cockpit_db else None
+        out = replace(self, inside_db=float(np.interp(nacelle_deg, t_db[:, 0], t_db[:, 1])) if t_db is not None else 0.0)
+        if self.pivot is None or nacelle_deg >= 90.0:
+            return out
+        t = np.radians(90.0 - nacelle_deg)
+        R = np.array([[np.cos(t), 0.0, np.sin(t)], [0.0, 1.0, 0.0], [-np.sin(t), 0.0, np.cos(t)]])
+        pv = np.asarray(self.pivot, float)
+        at = lambda p: tuple(float(v) for v in pv + R @ (np.asarray(p, float) - pv))
+        turn = lambda a: tuple(float(v) for v in R @ np.asarray(a, float))
+        return replace(out, inlet=at(self.inlet), exhaust=at(self.exhaust), inlet_axis=turn(self.inlet_axis),
+                       exhaust_axis=turn(self.exhaust_axis))
 
 
-def load_installations(aircraft_name_or_path):
-    """the aircraft preset's engines"""
+def load_installations(aircraft_name_or_path, nacelle_deg=90.0):
+    """the aircraft preset's engines (a tiltrotor's with its nacelles at nacelle_deg)"""
     p = Path(aircraft_name_or_path)
     if not p.suffix:
         p = PRESET_DIR / f"{aircraft_name_or_path}.toml"
@@ -171,7 +194,7 @@ def load_installations(aircraft_name_or_path):
     for e in d.get("engine", []):
         e = dict(e)
         e["engine"] = load_engine(e.pop("type"))
-        out.append(Installation(**e))
+        out.append(Installation(**e).tilted(nacelle_deg))
     if not out:
         raise ValueError(f"{p.stem} has no [[engine]] entries")
     return out
@@ -262,10 +285,12 @@ def engine_state(e, ng, lit=True, fuel_pph=None, start=None, atm=None):
 class Source:
     bands: np.ndarray = field(default_factory=lambda: np.zeros(len(BANDS)))
     tones: list = field(default_factory=list)
+    ripple: tuple = None            # (Hz, fraction): its amplitude's ripple, e.g. the drive's load at the blade rate
 
     def __iadd__(self, o):
         self.bands = self.bands + o.bands
         self.tones = self.tones + o.tones
+        self.ripple = self.ripple or o.ripple
         return self
 
     def total(self):
@@ -555,12 +580,12 @@ def _spectrum(src, L, fs, rng, f_lim, haze=0.004, coherent=0.6):
 
 
 def _path_gain(f, r, height_above, env, atm, cabin, doors_open=False):
-    """spreading from 1 m, air absorption, the ground's reflection (outside), the cabin's walls (inside: a
-    model.Cabin)"""
+    """spreading from 1 m, air absorption, the ground's reflection (outside), the cabin's walls and interior
+    (inside: a model.Cabin)"""
     from .environment import ground_gain
     g = np.exp(-atm.absorption(np.maximum(f, 1.0)) * r / 8.686) / max(r, 0.1) + 0j
     if cabin is not None:
-        g = g * np.sqrt(cabin.tau(f, doors_open))
+        g = g * np.sqrt(cabin.inside(f, doors_open))
     elif env is not None:
         g = g * ground_gain(f, height_above, r, env)
     return g
@@ -603,6 +628,10 @@ def _render_sources(srcs, observer, X, fs, duration, seed, environment, cabin, p
             G = _path_gain(k, r, pos[2] - X[2] if not inside else 0.0, env, atm, cabin if inside else None,
                            observer.name == "cockpit_open")
         x = sfft.irfft(_spectrum(src, L, fs, rng, f_lim) * G, L, workers=-1)
+        if src.ripple:
+            f_r, frac = src.ripple
+            n = max(1, int(round(f_r * L / fs)))           # whole cycles in the loop
+            x = x * (1.0 + frac * np.cos(2.0 * np.pi * n * np.arange(L) / L))
         if SPEED_WANDER[name] > 0:
             d = SPEED_WANDER[name] * _slow_noise(rng, L, fs, 0.3)[0]
             w = np.cumsum(d - d.mean()) / fs
@@ -626,7 +655,8 @@ def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, envir
     """A seamless loop of one engine at a listener riding with the aircraft (an Observer: its position, aircraft
     frame, or for the outside a horizontal distance at an azimuth, on the ground beside the aircraft standing on its
     gear). Inside, the cabin's walls (a model.Cabin; default a limp 8 kg/m^2 wall), with its doors open if the
-    observer is 'cockpit_open'. Returns a Render with the layers and their total."""
+    observer is 'cockpit_open', and the installation's cockpit loss. Returns a Render with the layers and their
+    total."""
     atm = atm or Atmosphere(0.0)
     e = inst.engine
     s = engine_state(e, cond.ng, cond.lit, cond.fuel_pph, atm=atm)
@@ -634,6 +664,8 @@ def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, envir
     srcs = layer_sources(inst, s, X, cond.starter, cond.np_pct, atm)
     sig, lv = _render_sources(srcs, observer, X, fs, duration, seed, environment, cabin, pitch_headroom, f_highpass,
                               atm)
+    if observer.position is not None and inst.inside_db:
+        sig = {k: x * 10.0 ** (inst.inside_db / 20.0) for k, x in sig.items()}
     meta = dict(engine=e.name, installation=inst.name, ng=cond.ng, lit=cond.lit, starter=cond.starter,
                 fuel_pph=round(s.fuel_pph, 1), power_shp=round(s.power_w / 745.7, 1), tgt_c=round(s.T45 - 273.15, 1),
                 source_db_1m=lv, observer=observer.name)
@@ -699,12 +731,19 @@ def render_apu(apu, n_pct, observer, fs=48000.0, duration=15.0, seed=1, environm
 
 @dataclass
 class Transmission:
-    """The main gearbox's mesh tones as heard inside (an aircraft preset's [transmission]): [Hz at 100 % rotor
-    speed, dB at the pilot at the reference torque, sideband spacing Hz], their amplitude with the torque."""
+    """The drive as heard inside (an aircraft preset's [transmission]): the gearboxes' mesh tones [Hz at 100 % rotor
+    speed, dB at the pilot at the reference torque, sideband spacing Hz] and, measured where it is known, the drive's
+    and engines' structure-borne roar, the vibration that reaches the cabin's frames through the airframe: third
+    octaves [Hz at 100 % rotor speed, dB at the pilot at the reference torque]. Both move with the rotor speed, their
+    amplitude with the torque, and that load's ripple at the rotors' blade-passing rate where it is measured (ripple:
+    [Hz at 100 % rotor speed, fraction])."""
     tones: list
     reference_torque_pct: float = 75.0
     rpm_property: str = "rotors/main/rpm"
     torque_properties: list = field(default_factory=list)
+    bands: list = field(default_factory=list)
+    rpm_nominal: float = None       # the rpm property at 100 % (default: the main rotor's rpm)
+    ripple: list = None
 
 
 def load_transmission(aircraft_name_or_path):
@@ -722,12 +761,26 @@ def gearbox_source(tr, rotor_pct=100.0, torque_pct=100.0):
     out = Source()
     k = rotor_pct / 100.0
     g = (torque_pct / tr.reference_torque_pct) ** 2
+    if tr.bands:
+        b = np.asarray(tr.bands, float)
+        lvl = np.interp(np.log(BANDS / k), np.log(b[:, 0]), b[:, 1], left=-200.0, right=-200.0)
+        out.bands = P_REF ** 2 * 10.0 ** (0.1 * lvl) * g
+    if tr.ripple:
+        out.ripple = (tr.ripple[0] * k, tr.ripple[1])
     for f, L, side in tr.tones:
         p = P_REF ** 2 * 10.0 ** (0.1 * L) * g
         out.tones.append((f * k, p))
         for j, d in ((1, -10.0), (2, -18.0)):
             out.tones += [(f * k + j * side * k, p * 10.0 ** (0.1 * d)), (f * k - j * side * k, p * 10.0 ** (0.1 * d))]
     return out
+
+
+def gearbox_full_rpm(tr, aircraft):
+    """the rotor speed from which the gearbox plays at its full level, in the units of tr's rpm property: for a
+    tiltrotor its airplane mode's share of the helicopter mode's. Its level follows the torque; this only fades it out
+    as the rotor stops, and must not take anything off in a cruise at reduced rotor speed."""
+    nominal = tr.rpm_nominal or aircraft.main.rpm
+    return nominal * (aircraft.airplane_rpm / aircraft.main.rpm if aircraft.airplane_rpm else 1.0)
 
 
 def render_gearbox(tr, observer, fs=48000.0, duration=15.0, seed=1, torque_pct=100.0, f_highpass=25.0):
@@ -759,16 +812,20 @@ def _views(aircraft, distance):
 
 
 def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration=15.0, bits=16, peak_dbfs=-1.0,
-                     like=None, environment="open", seed=1, progress=print):
+                     like=None, environment="open", seed=1, nacelle_deg=90.0, progress=print):
     """Loops of every engine of the aircraft over its gas generator speed: lit (the operating line; below idle a
     start's acceleration), cold (cranked or spooling down) and the starter, in the cockpit and outside (on the
     ground beside the aircraft, `distance` m to its right), with manifest.json and pywopwop-engines.xml. Layers:
     compressor (the inlet's whine), core (combustion and the jet), turbine (the power turbine, at 100 % Np),
     starter. like: a rotor bank's manifest.json (or its folder) whose gains these loops take, so that their
-    loudness against its loops is the physics'; default: the loudest at peak_dbfs."""
+    loudness against its loops is the physics'; default: the loudest at peak_dbfs. A tiltrotor's engines turn with
+    its nacelles (nacelle_deg: 90 helicopter mode, 0 airplane mode); off 90 the files and sounds are named for it
+    (airplane_..., pww-airplane-...), so that the two banks can be faded into each other by the nacelle angle."""
     from .model import load_aircraft
     ac = load_aircraft(aircraft_name)
-    insts = load_installations(aircraft_name)
+    insts = load_installations(aircraft_name, nacelle_deg)
+    mode = "" if nacelle_deg >= 90.0 or all(x.pivot is None for x in insts) else \
+        ("airplane_" if nacelle_deg <= 0.0 else f"nacelle{nacelle_deg:g}_")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     renders = []
@@ -837,21 +894,23 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
             if lv[x]["oaspl"] < 0.0:
                 continue
             layer = x.split("/")[-1]
-            fn = f"{inst.name}_{layer}_{kind}_{c.ng:g}_{o.name}.wav"
+            fn = f"{mode}{inst.name}_{layer}_{kind}_{c.ng:g}_{o.name}.wav"
             write_wav(out / fn, sig, r.fs, bits, gains[group(o)], seed=abs(hash(fn)) % 2 ** 32)
             files.append(dict(file=fn, engine=inst.name, layer=layer, state=kind, ng=c.ng,
                               fuel_pph=r.meta.get("fuel_pph", 0.0), observer=o.name, oaspl_db=round(lv[x]["oaspl"], 2),
                               dba=round(lv[x]["dba"], 2)))
     manifest = dict(aircraft=ac.name, generator="pywopwop engines", sample_rate=fs, bits=bits,
                     gain_db={g: round(20.0 * np.log10(v), 3) for g, v in gains.items()},
-                    exterior_distance_m=distance,
+                    exterior_distance_m=distance, nacelle_deg=nacelle_deg, mode=mode.rstrip("_"),
                     engines=[dict(name=x.name, engine=x.engine.name, properties=x.properties,
                                   starter_property=x.starter_property or f"{x.properties}/cranking",
+                                  n2_property=x.n2_property or f"{x.properties}/n2-pct",
                                   idle_ng=x.engine.idle_ng, lightoff_ng=x.engine.lightoff_ng) for x in insts],
                     lit_ng=list(LIT_NG), cold_ng=list(COLD_NG), starter_ng=list(STARTER_NG),
                     openings=[dict(share=o["share"], property=o["property"]) for o in ac.cabin.openings],
                     apu=dict(name=apu.name, property=apu.property, grid=list(APU_PCT)) if apu else None,
-                    gearbox=dict(rpm_property=tr.rpm_property, nominal_rpm=ac.main.rpm,
+                    gearbox=dict(rpm_property=tr.rpm_property, nominal_rpm=tr.rpm_nominal or ac.main.rpm,
+                                 full_rpm=gearbox_full_rpm(tr, ac),
                                  torque_properties=tr.torque_properties) if tr else None,
                     note="levels: dB re 20 uPa at the listener before the gain; turbine loops at 100 % Np; "
                          f"outside: on the ground {distance:g} m to the right", files=files)
@@ -882,6 +941,7 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
             return []
         return [open_w if view == "cockpit_open" else shut_w]
     out = []
+    mode = f"{manifest['mode']}-" if manifest.get("mode") else ""
 
     def series(who, layer, state, grid, view, speed, extra, lo0=0.0, pitch="n1", n2=None):
         """one layer's loops over the speed (an expression, percent): equal-power cross-fades, each pitched by the
@@ -908,7 +968,7 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
                       f"<max>{(hi or 1.3 * n) / n:.4g}</max></pitch>\n")
             else:
                 pt = ""
-            out.append(f"\t\t<engine>\n\t\t\t<name>pww-{who}-{layer}-{state}-{n:g}-{view}</name>\n"
+            out.append(f"\t\t<engine>\n\t\t\t<name>pww-{mode}{who}-{layer}-{state}-{n:g}-{view}</name>\n"
                        f"\t\t\t<mode>looped</mode>\n\t\t\t<path>{sound_dir}/{f['file']}</path>\n"
                        f"\t\t\t<condition><and>{''.join(cond)}</and></condition>\n"
                        f"\t\t\t<volume><expression>{vol}</expression></volume>\n"
@@ -918,7 +978,8 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
                        + "\t\t</engine>\n")
     for eng in manifest["engines"]:
         P, who = eng["properties"], eng["name"]
-        n1, n2 = f"<property>{P}/n1-pct</property>", f"<property>{P}/n2-pct</property>"
+        n1 = f"<property>{P}/n1-pct</property>"
+        n2 = f"<property>{eng.get('n2_property') or P + '/n2-pct'}</property>"
         run = f"<property>{P}/running</property>"
         ff = f"<property>{P}/fuel-flow-pph</property>"
         crank = f"<property>{eng['starter_property']}</property>"
@@ -941,11 +1002,11 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
         tq = _e("div", _e("sum", *[f"<property>{p}</property>" for p in gb["torque_properties"]]),
                 _v(100.0 * max(len(gb["torque_properties"]), 1)))
         vol = _e("clip", tq, "<clipMin>0.03</clipMin><clipMax>1</clipMax>")
-        out.append(f"\t\t<engine>\n\t\t\t<name>pww-gearbox-cockpit</name>\n\t\t\t<mode>looped</mode>\n"
+        out.append(f"\t\t<engine>\n\t\t\t<name>pww-{mode}gearbox-cockpit</name>\n\t\t\t<mode>looped</mode>\n"
                    f"\t\t\t<path>{sound_dir}/{gfile['file']}</path>\n"
                    f"\t\t\t<condition><and><property>sim/current-view/internal</property><greater-than>{rpm}"
                    f"<value>{0.05 * gb['nominal_rpm']:.3g}</value></greater-than></and></condition>\n"
-                   f"\t\t\t<volume><expression>{_e('product', vol, _e('clip', _e('div', rpm, _v(gb['nominal_rpm'])), '<clipMin>0</clipMin><clipMax>1</clipMax>'))}</expression></volume>\n"
+                   f"\t\t\t<volume><expression>{_e('product', vol, _e('clip', _e('div', rpm, _v(gb.get('full_rpm', gb['nominal_rpm']))), '<clipMin>0</clipMin><clipMax>1</clipMax>'))}</expression></volume>\n"
                    f"\t\t\t<pitch>{rpm}<factor>{1.0 / gb['nominal_rpm']:.6g}</factor><min>0.05</min><max>1.3</max></pitch>\n"
                    "\t\t</engine>\n")
     apu = manifest.get("apu")

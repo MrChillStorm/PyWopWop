@@ -21,7 +21,9 @@ frequencies. No CFD and no external comprehensive analysis are needed.
 | Unsteadiness | Revolutions computed with their own turbulent gusts (frozen von Kármán field) and tip-vortex wander and strength; each blade morphs between them from one passage to the next, so no two slaps are alike |
 | Blade-wake interaction | The turbulence around the older tip vortices met by the following blades (Landgrebe's hover wake, Beddoes' in forward flight), through Amiet's inflow noise: the swish and the crackle around the slap |
 | Tonal noise | Farassat's Formulation 1A: thickness from the real blade surface, loading over the chord; closed-form reception times, analytic kinematics including the elastic motion |
-| Broadband noise | BPM airfoil self-noise (ported from the NASA RP-1218 Fortran) and Amiet turbulent inflow noise, per segment and azimuth, Doppler shifted: a spectral history over the revolution |
+| Wing behind the discs | A tiltrotor in airplane mode (`wing`): each blade's bound vortex, the tip and root vortices it trails (the prescribed wake's, with HART II's measured core) and its viscous wake (Lakshminarayana and Davino's deficit) sweep over the wing's leading edge; each strip answers its upwash by Sears' function and its unsteady lift radiates as a dipole, part of the blade's loading harmonics. Where the tip circle crosses the wing (the MV-22B's roots) the vortices run into its leading edge 3 ms old, and the wakes' pulses there are a fraction of a millisecond wide: harmonics that fall slowly. On the airframe's own skin only its sound counts: the pressure hugging the wing is no sound, and the skin under the wing is out of the outside air. Where the wing is bolted to the fuselage its loads also reach the cabin through the structure (statistical energy analysis: the power fed in through the structure's input mobility, stored against its loss factor, radiated by the panels between frames and stringers by their edge modes, Maidanik), which passes those harmonics as the walls don't |
+| Wing under the discs | A tiltrotor in a hover (`wing`): the wing blocks part of each rotor's downwash, which meets the other's over the fuselage and rises back through the discs. The inflow over the wing falls by 20 % (Rutledge, Coffen and George's model of the XV-15), a jump in each blade's load that radiates spikes behind the aircraft, of a strength of their own each revolution; and the fountain's turbulence (from hot wires on a 1/12 scale XV-15: 25 % of the induced velocity over the disc's outer third, from the wing rearward, the disc's height over the wing its length scale, half the time) goes through Amiet's inflow noise. Gone with the download by 15 m/s |
+| Broadband noise | BPM airfoil self-noise (ported from the NASA RP-1218 Fortran) and Amiet turbulent inflow noise (the air's turbulence fading with height, from the surface layer's to a quarter of it above 1000 m), per segment and azimuth, Doppler shifted: a spectral history over the revolution |
 | Synthesis | Additive synthesis from the exact harmonics in sample-exact loops; band noise shaped by the blade-passage envelope; small random gusts, blade-tracking differences and rpm wander |
 | Propagation | ISO 9613-1 absorption; turbulent-air scintillation (per octave band, slowly fluctuating delay and level growing with distance and frequency); for fly-bys, exact Doppler |
 | Surroundings | Outside listeners stand on the ground: the reflection (image source, Delany-Bazley grass) and a light diffuse outdoor field (`--environment free/ground/open/urban`) |
@@ -91,19 +93,25 @@ band limited for pitch factors up to 1.25 (`--headroom`), so pitching up never a
 an expression that multiplies its fades: a `<volume>`'s own factor, offset, minimum and maximum can't make a fade in
 FlightGear, which clips the factor times the property before adding the offsets and reads at most five of them.
 
-Tiltrotors: `--mode airplane` renders the airplane mode's conditions (nacelles 0: 180, 220 and 260 kt, a climb and a
+Tiltrotors: `--mode airplane` renders the airplane mode's conditions, in the thin, smooth air of a cruise at 3048 m
+unless `--altitude` says otherwise (nacelles 0: 180, 220 and 260 kt, a climb and a
 descent) from the preset's `airplane_trim` and `airplane_rpm`; a simulator fades the two banks into each other with
-the nacelle angle.
+the nacelle angle. A bank's airspeeds are calibrated, as the simulator's fades are: at altitude a condition flies the
+true airspeed with sea level's dynamic pressure at that speed (220 kt at 3048 m is 256 kt true), which holds the
+cockpit's level within 0.2 dB of the same speed at sea level (at 220 kt true it fell 4 dB short).
 
 `tools/slap_map.py` maps the blade slap's level over the rotor's advance ratio and its inflow through the tip-path
 plane (trims over a grid of airspeed and vertical speed): a flight model that computes these for its rotors can
 drive a bank's slap loops in any manoeuvre (a flare, a turn), not only in the bank's steady descents. The
 FlightGear V-22 does.
 
-`wind` renders the cockpit's wind: the windscreen's turbulent boundary layer (a flat plate's from the nose,
-`windscreen_m` aft of it), its wall pressure by Goody's spectral shape at Farabee and Casarella's measured level (Bies's
-flight data within about 1 dB), through the cabin wall as Levine and DeFelice predict a helicopter's cabin noise
-(NASA, 1978). Loops at sea level from 30 to 350 kt, at a bank's cockpit gain (`--gain-from`), and a FlightGear section
+`wind` renders the cockpit's wind: the windscreen's turbulent boundary layer, or with the fuselage described the
+boundary layer over all its skin round the cockpit and cabin, each patch at its run from the nose (a flat plate's;
+the windscreen `windscreen_m` aft of it), its wall pressure by Goody's spectral shape at Farabee and Casarella's
+measured level (Bies's flight data within about 1 dB), through the walls as Levine and DeFelice predict a helicopter's
+cabin noise (NASA, 1978): the windows and the skin by the mass law, each coupled poorly to the convected eddies below
+its hydrodynamic coincidence (as a glider's canopy is), not through the cabin's leaks (the eddies don't pass a gap as
+sound does), and built up inside as the cockpit's absorption lets it. Loops at sea level from 30 to 350 kt, at a bank's cockpit gain (`--gain-from`), and a FlightGear section
 that cross-fades them by the equivalent sea level airspeed V_eq = V (nu/nu_0)^-1/6 and scales them by
 sqrt(sigma mu/mu_0) for the altitude, from FlightGear's equivalent airspeed and the air's density and temperature: the
 same spectrum as the full model's within 0.5 dB per third octave to 12 km, 1.2 dB at 21 km.
@@ -173,7 +181,7 @@ buffet through the structure is not in the model.
 `pywopwop engine` and `engine-bank` compute a turboshaft's sound from its thermodynamic state: starts, shutdowns
 and everything between. An aircraft preset lists its engines (`[[engine]]`: the type, the inlet's and exhaust's
 positions and directions, the FlightGear properties that drive it); the engine is a preset in
-`pywopwop/presets/engines/` (`t700`: the UH-60A's T700-GE-700). The sources are the ones NASA's helicopter noise
+`pywopwop/presets/engines/` (`t700`: the UH-60A's T700-GE-700; `ae1107c`: the MV-22B's AE 1107C). The sources are the ones NASA's helicopter noise
 system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turbine modules):
 
 | Part | Model |
@@ -185,8 +193,8 @@ system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turb
 | Jet | the exhaust's mixing noise, SAE ARP 876's acoustic power |
 | Starter | the air turbine starter while it cranks: its turbine's tones and broadband (GE's method) through the engine's cowling (mass law), its exhaust ducted overboard; the bleed air reaches it choked, so its loading holds as it speeds up |
 | APU | by its recorded signature (`presets/apu/`): its shaft's orders and its broadband spectrum moving with its speed, their power with the speed to the 5th |
-| Transmission | the main gearbox's mesh tones at their tooth counts' frequencies, with harmonics and the planets' or shafts' sidebands, heard inside through the roof (doors open or shut alike), their amplitude with the engines' torque |
-| Cabin | the walls between the outside and the pilot by area: skin and windows as panels with their coincidence dips (Sharp's transmission loss), leaks, and what opens (doors, windows) by its share of the area (composite transmission) |
+| Transmission | the main gearbox's mesh tones at their tooth counts' frequencies, with harmonics and the planets' or shafts' sidebands, heard inside through the roof (doors open or shut alike), their amplitude with the engines' torque; where it has been measured (the MV-22B), the drive's and engines' structure-borne roar, their vibration reaching the cabin's frames through the airframe, as third octaves at the pilot moving with the rotor speed and the torque, and swelling and fading with its load's ripple at the blade rate |
+| Cabin | the walls between the outside and the pilot by area: skin and windows as panels with their coincidence dips (Sharp's transmission loss), a trimmed sidewall as a double wall (`trim_mass`, `trim_gap`: the skin and a trim panel with blankets between, by Fahy's mass-air-mass law, far tighter than one wall above its resonance), leaks, and what opens (doors, windows) by its share of the area (composite transmission); inside, the transmitted sound built up in a diffuse field as the interior's losses let it (1/alpha: a trimmed cabin absorbs little below 250 Hz and most above 1 kHz, so its lows build up and its highs don't, though the lowest leak back out through the walls, the room's loss too), from the cockpit's lowest mode up. With the fuselage described (`fuselage`: its sections round the cockpit and the cabin open to it, each a rounded rectangle of a given squareness; `glazing`: where its windows are, each patch passing through the windows' panel or the opaque wall's), the rotors are heard through the pressure on its walls rather than at the listener's head: below the lowest mode their area-weighted mean (one pressure chamber), above it their powers (a diffuse field, each harmonic a draw of the cabin's modal response, Schroeder's complex Gaussian: a random phase, levels scattered by 5.6 dB rms, so a few lines stand on resonances), each patch also heard directly by the listener (Sabine's direct field, A / 8 pi r^2 against A / S alpha). Near a blade most of that pressure is its hydrodynamic footprint (the radiation formula's terms falling as 1/r^2), which sweeps along the skin at the tip's speed and drives it as a boundary layer's eddies do, poorly below its hydrodynamic coincidence; only the radiating terms pass as sound |
 | Synthesis | tones scattered into narrow bands by the turbulence in the inlet and the wakes, the shafts' speeds wandering, the combustion's roar swelling and fading; absorption and the ground as for the rotors |
 
 ```bash
@@ -194,7 +202,20 @@ pywopwop engine uh60a --ng 65 -o idle.wav
 pywopwop engine uh60a --ng 24 --cold --starter --cockpit -o cranking.wav
 pywopwop engine-bank uh60a -o out/uh60a_engines --like out/uh60a
 pywopwop bank uh60a -o out/uh60a --runup --update
+pywopwop engine-bank mv22b -o out/mv22b_engines --like out/mv22b
+pywopwop engine-bank mv22b -o out/mv22b_engines_airplane --nacelle 0 --like out/mv22b_airplane
 ```
+
+A tiltrotor's engines turn with its nacelles: an `[[engine]]` with a `pivot` gives its positions and directions with
+the nacelles vertical, as the rotors do, and `--nacelle 0` renders the airplane mode's bank (its files and sounds named
+`airplane_...` and `pww-airplane-...`), to be faded into the helicopter mode's by the nacelle angle as the rotor banks
+are. `n2_property` names the power turbine's speed where the flight model has none of its own: the MV-22B's turns
+with the proprotors (`/fdm/jsbsim/drive/nr-pct`). The AE 1107C's cycle is the published one at its rating (pressure
+ratio 16.7; 15.9 kg/s and 1,208 C at the turbine inlet, the published 1,209) and below it follows the MV-22B flight
+model's own line, n1 = 60 + 45 sqrt(P / 6150) % and its fuel flow, which its loops are played by. Its first stage's 32
+blades put the whine at 7.08 kHz at 90.5 % n1, as recorded beside a nacelle in airplane-mode cruise; the paths from
+the nacelles forward to the cockpit lose 18 dB in airplane mode that the model doesn't resolve (`cockpit_db`,
+measured). Outside, on the ground 50 m to the side, one engine makes 75 dBA at 65 % n1 and 91 at the rating.
 
 The bank has each engine lit at 14 gas generator speeds (20-104 %: below idle a start's acceleration, from idle the
 operating line), cold at 13 (3-100 %: cranking, and spooling down after a shutdown or a flameout) and its starter
@@ -256,8 +277,9 @@ shipped came from those. Without a table, a smooth
 model from `lift_slope`, `alpha0_deg`, `cl_max`, `cd0`, `mach_dd` and `cm0` stands in. Then
 `pywopwop render my_heli.toml ...`. A tiltrotor's rotors take a `pivot` (the conversion axis, about which the hub and
 thrust axis given for helicopter mode turn forward), and the aircraft its airplane mode's level-flight trims,
-`airplane_trim = [[true airspeed kt, angle of attack deg, thrust N per rotor], ...]` at its mass, and `airplane_rpm`
-(the MV-22B's from its FlightGear flight model).
+`airplane_trim = [[true airspeed kt, angle of attack deg, thrust N per rotor], ...]` at its mass and `airplane_trim_m`
+(their altitude), and `airplane_rpm` (the MV-22B's from its FlightGear flight model). A rotor tied to the first by a
+shaft gives its blades' azimuth behind the first's as `index_deg`.
 
 ## Checks
 
@@ -286,7 +308,7 @@ thrust axis given for helicopter mode turn forward), and the aircraft its airpla
 - Against UH-60 recordings made in the cabin (videos; their camera's automatic gain cancels in the ratios used): the
   T700's whine settles at idle on two tones at exactly 10:11, 10.06 and 11.06 kHz, which 20 and 22 blades give at
   67.5 % Ng, and sits at 13.0 kHz at FLY on the ground and 14.05 kHz in the hover (87 and 94 % Ng). Closing the cabin's
-  doors takes 18.3 dB off the whine at 10 kHz while the cabin's own sounds stay put; the model's walls take 18.8 dB.
+  doors takes 18.3 dB off the whine at 10 kHz while the cabin's own sounds stay put; the model's walls take 19.0 dB.
   The gearbox's tones sit at the planetary mesh's 980 Hz and its harmonics and grow by about 12 dB from flat pitch to
   the hover, as their amplitude with the torque gives.
 - Against ASK 21 cockpits recorded in aerobatics (two videos; their cameras' gain is unknown, so only spectral shapes
@@ -307,6 +329,77 @@ thrust axis given for helicopter mode turn forward), and the aircraft its airpla
   misreads by 10 to 20 kt. The model's hiss hardly depends on where the ear is (0.3 dB over 10 cm). Leaks through the
   canopy's seals and vents, driven by the lift and the slip, would grow so; so might the camera's microphone, and one
   recording can't tell them apart. Nothing in it starts or stops with the ailerons, as in the model.
+- Against an MV-22B recorded in airplane-mode cruise (a video: behind the pilots facing the instrument panel, and at a
+  cabin window beside a nacelle; the camera's gain and response unknown, so the checks are ratios at one frequency:
+  tones over the broadband beside them, and how the sound pulses with the blades): the proprotors pass their blades at
+  16.61 Hz (332 rpm, 83.7 %, the preset's airplane mode). At the window the first compressor stage's whine sits at
+  7.08 kHz and falls to 6.72 kHz as the power comes off (90.5 to 85.9 % n1 in the flight model), chopped by the
+  proprotor's blades (its envelope 30 dB over its floor at the blade-passing frequency). In the cockpit a tone at 8.17
+  kHz holds while the whine moves (39 times the power turbine's shaft rate: a gear's mesh), and one at 2.03 kHz;
+  neither the chopping nor the drive's tones are in the model. Heard at the listener's head through limp walls with a
+  30 dB leak, the model's cockpit was the proprotors' first harmonics with little else. Heard through the pressure on
+  the fuselage's skin (its blades' hydrodynamic footprint coupled as a convected field), with the boundary layer over
+  the whole skin and the walls a trimmed sidewall (a double wall) round the windscreen where the 3-D model has it,
+  what the recording has besides the proprotors and the wind is a steady roar from 40 Hz to 12 kHz that hardly pulses
+  with the blades and is strongest by the wing's root (the window's camera): the drive's and engines' vibration
+  through the wing and the cabin's frames. Measured from it (its spectrum the recording's floor between the lines, its
+  level so that the harmonics up to the 10th stand out of it as there: medians 13 and 15 dB, the room's modes
+  scattering the recording's by 8 dB from one to the next), with the two gear meshes at their prominence, the model
+  makes 99 dBA at the camera's place, and the whine, the 2.03 kHz and the 8.17 kHz meshes stand 0.8, 5.6 and 5.4 dB
+  out of the broadband (the recording's 0.3, 5.4 and 4.7). From the 6th to the 30th harmonic (100 to 500 Hz) the
+  recording's fall 0.75 dB a harmonic, standing 2 to 15 dB out of the broadband, where the proprotors' fall 2.4 dB a
+  harmonic and fade into it from the 14th: even 5 cm from the tip path their pressure falls 36 dB from the 6th to the
+  30th, following the blade's 2.8 ms passage (finer patches, the radiation formula's resolution, the section's shape
+  and the coupling move that by a few dB), and the recording's lines are all at multiples of the blade-passing
+  frequency. The wing behind the discs makes them: each tip vortex (13 m^2/s) runs into its leading edge just outboard
+  of the root 2.7 ms after it is shed, and the blades' viscous wakes sweep it there in pulses a fraction of a
+  millisecond wide. Through the walls as sound its highest harmonics still lose 25 dB more from the 10th to the 30th
+  than the recording's, which lose about what the pressure outside does: the wing is bolted to the cabin's roof frames
+  where the vortices strike it, and through the structure (statistical energy analysis) its loads' harmonics fall 0.9
+  dB a harmonic, as the recording's do. Heard at the cruise's height and speed (10,000 ft; level trims hold by dynamic
+  pressure, so they are looked up at the speed with the same one at the trims' altitude; in sea-level air every rotor
+  pressure was 2.6 dB too strong), with the air's turbulence there a quarter of the surface layer's (near the ground's
+  0.8 m/s made an inflow rumble as strong as the harmonics under 250 Hz; now the 2nd to the 5th stand 19 to 23 dB out
+  of it, the recording's 12 to 25), the two rotors' blades 26 degrees out of step (measured: below the cockpit's
+  lowest mode their pressures add coherently, and in step the 2nd harmonic stands 12 dB over the recording's; only
+  this index fits it and the 1st together), the structure's input mobility measured from the recording (5.6e-4 s/kg, 9
+  dB under the cabin skin's: a wing box's thick skins and spars), what the walls let out counted as the room's loss
+  (at 66 Hz more than the trim absorbs), the skin under the wing out of the outside air and only the wing's sound on
+  the skin (the pressure hugging it is no sound), the walls' mass from the lines' stand out of the broadband from 50
+  to 200 Hz (7 and 4 kg/m^2), and each harmonic a draw of the cabin's modal response (a complex Gaussian: with equal
+  levels neighbouring lines beat, and the 100 to 200 Hz band pulsed 14 dB a blade pass where the recording's, one line
+  standing on a resonance, pulses 5), the blade lines hold 74 % of the power from 100 to 200 Hz (the recording's 69),
+  25 % from 200 to 300 Hz (20), and that band's 100 to 200 Hz pulsing is 5.6 dB, its 90 to 600 Hz periodic part 10.5
+  dB under the band's rms (10.2). The harmonics from the 14th to the 30th stand up to 11 dB out of the broadband (mean
+  4.5; the recording's 2 to 12, mean 5.6), from the 6th to the 13th 16 dB (its 13). Which harmonics stand on
+  resonances isn't known: of 64 draws the recording's statistics lie within the spread (the band under 250 Hz stands
+  6.5 dB over the rest in the median, the recording's 5.7), and the preset's is the one showing the rotors least, 6.8
+  dB. Loudness-matched (ITU-R BS.1770) the model is within 2.4 dB of the recording in every band from 50 Hz to 12 kHz
+  (9 dB under it from 25 to 50 Hz, where the camera's response is unknown), the noise between the lines within 2 dB
+  from 39 to 500 Hz but for the third octave at 200 Hz (3.7 dB under). The recording's broadband from 500 Hz to 12 kHz
+  also swells and fades with the blades, by 0.8 to 1.3 dB in every band and at the same point of each pass, as deep in
+  the passes with the weakest third of the low pulses as in those with the strongest (2 dB apart; the estimate's noise
+  0.2 dB): not the camera's gain, which would duck deeper under the stronger pulses. With the drive's load rippling 6
+  % at the blade rate (the proprotors' torque as each blade passes the wing), measured from it, the model's swells and
+  fades by 0.6 to 1.4 dB from 500 Hz up over a 10 s stretch (the recording's by 0.5 to 1.9). The wing's own flow
+  through the discs, as a 2-D source and bound vortex at the 3-D model's 0.2 to 0.6 m from them, swings the blades'
+  angle of attack 5 degrees a revolution and lifts their harmonics from the 6th to the 16th 13 dB further out of the
+  broadband than the recording's, without their slope changing: not modelled, the real clearance and the wing's
+  three-dimensional relief unknown (so the torque's ripple is measured, not computed).
+- Against an XV-15 hovering over microphones on ground boards (Rutledge, Coffen and George 1991) and a 1/12 scale
+  model with fences on its wings (George 1996): at 57 rotor radii the wave ahead of the aircraft is 2 Pa either way with
+  no spikes, as measured, and behind it the fountain's spikes reach 10 Pa 46 degrees below the disc (measured about the
+  same, three times the shallower angles') and 6 to 10 Pa at 13 and 23 degrees (5). The fountain adds 3.8 dBA behind
+  and nothing ahead; the fences, which removed it, took 4.1 dBA off behind.
+- Against a published table of the MV-22's noise outside (Japan's Ministry of Defense, 2012). Directly below in airplane
+  mode at 220 kt: maximum level 88 dBA at 500 ft, 81 at 1000 ft and 78 at 1500 ft; the model at sea level, nothing
+  fitted to it, makes 90.1 dBA at 100 m, which spreading alone takes to 86.4, 80.4 and 76.9 (77 at 100 m before the
+  wing's source). In the hover the table gives 105.3 dBA at 50 m, 100.4 at 100 m, 95.5 at 200 m and 84.5 at 500 m, not
+  saying the hover's height or the listener's direction. Behind the aircraft, 30 degrees below the disc, over hard
+  ground and taking the maximum at fast response, the rotors alone make 104.5, 98.2, 92.3 and 84.1: within 3.2 dB. To
+  the side, 2.5 dB less. A low hover heard along the ground (the hub 30 m up) falls away faster, 103.4, 95.9, 85.2 and
+  73.9, its listeners sinking towards the disc's plane, which the table's 4.9 dB a doubling doesn't fit. Its engine
+  test (100.4 dBA at 50 m) can't be compared: the MV-22B has no ground run here.
 
 ## Limits
 
@@ -319,10 +412,14 @@ or main rotor wake on the tail rotor. One section per rotor (the UH-60's SC1095 
 coordinates for the whole blade; the MV-22B's XN12, the 0.75 R section, with a 12 % thickness for the whole blade,
 whose tip is 9 %); the XV-15 and the quadcopter, whose section tables aren't public, use the smooth section model.
 The tiltrotors fly with their nacelles vertical and their rotors carrying all the weight (no wing lift), or in
-airplane mode from given trims; the conversion between them is not modelled. The cockpit's wind is an attached
-boundary layer's through a limp wall (the cabin's 8 kg/m^2 by default): no separated flow round the windscreen's frame,
-no compressibility (past about Mach 0.5), and a boundary layer drives a panel less efficiently than sound does below
-hydrodynamic coincidence, so its low end is an upper bound. Exported loops are high-passed at 25 Hz (`--highpass`), as a recording chain is: a main rotor's
+airplane mode from given trims; the conversion between them is not modelled. Their wing is a source with the
+nacelles below 30 degrees only, by strip theory, the blades' vortices passing through it uncut; in a hover its
+fountain is the XV-15's inflow deficit scaled by the chord (a model's probes found the load falling, jumping and
+falling again over the wing, which isn't modelled), and its switching from rotor to rotor only each revolution's
+strength. The cockpit's
+wind is an attached boundary layer's: no separated flow round the windscreen's frame, no leaks' own flow noise, no
+compressibility (past about Mach 0.5). The cabin's interior absorption is a trimmed cabin's, estimated, for every
+aircraft that doesn't give its own. Exported loops are high-passed at 25 Hz (`--highpass`), as a recording chain is: a main rotor's
 blade-passing fundamental (10 to 30 Hz) is felt more than heard.
 
 ## Licence

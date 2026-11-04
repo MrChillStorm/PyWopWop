@@ -1,0 +1,76 @@
+# Rolls-Royce (Allison) AE 1107C / T406-AD-400, the MV-22B's engine: a free-turbine turboshaft with a 14-stage axial
+# compressor (variable inlet guide vanes and first five stators), an annular combustor, a two-stage gas generator
+# turbine and a two-stage power turbine; 6,150 shp take-off at 15,000 rpm output, overall pressure ratio 16.7, turbine
+# inlet temperature 1,209 C, 0.426 lb/shp/h. Its core is the AE 2100's (about three quarters of the parts common).
+#
+# Published: the ratings, pressure ratio, turbine inlet temperature and stages (Rolls-Royce's data sheet; the T406's);
+# the gas generator's maximum steady speed, 15,404 rpm, from the AE 2100's type certificate (EASA TCDS IM.E.040).
+#
+# The operating line is the FlightGear MV-22B's JSBSim flight model's, which these loops are played by: its gauges'
+# gas generator speed n1 = 60 + 45 sqrt(P / 6150) % (60 % without load, 105 % at the rating) and its fuel flow, 0.42
+# lb/shp/h at the rating rising 50 % towards no load, at least a tenth of the rating's. 105 % is the core's maximum
+# steady speed, so 100 % is 14,670 rpm.
+#
+# Measured: the first compressor stage's blade count, from a recording beside an MV-22B's nacelle in airplane-mode
+# cruise: the inlet's whine at 7.08 kHz, chopped by the proprotor's blades at their passing frequency, which 32 blades
+# give at 90.5 % n1, the flight model's for the cruise's power (about 2,600 to 2,900 shp an engine); one blade more
+# or fewer for a cruise 3 % off that.
+#
+# Estimated (no public source found): the vane count, the stages' diameters and pressure ratios, the rotor-stator
+# spacing, the power turbine's last stage, the exhaust area and the air turbine starter; the compressor's pressure
+# ratio at part power and its whine at low speed are the T700's (presets/engines/t700.toml) carried over.
+[engine]
+name = "AE 1107C"
+ng_rpm = 14670.0                 # 100 % gas generator speed: 105 % is the core's 15,404 rpm
+np_rpm = 15000.0                 # 100 % power turbine speed (397 rpm at the proprotors)
+design_ng = 105.0                # the take-off rating in the flight model
+pressure_ratio = 16.7            # at design_ng
+pressure_ratio_low = [90.5, 11.0]    # (Ng %, ratio) at 46 % of the rating: the T700's share of its design ratio at
+                                     # that share of its power (GE's simulation), estimated
+t45_design_k = 1102.0            # power turbine inlet: the 1,482 K turbine inlet less the gas generator turbine's work
+compressor_efficiency = 0.82
+burner_efficiency = 0.99
+fuel_lhv = 43.2e6                # J/kg, JP-8
+idle_ng = 60.0                   # the flight model's n1 without load
+lightoff_ng = 15.0
+starter_ng = 24.0                # estimated
+dropout_ng = 56.0                # estimated
+# the flight model's steady line against n1 (%): fuel flow (lb/h), and below 60 % its spool-up from rest (n1 about
+# 60 % of the spool, the fuel the spool's share of the floor)
+fuel_line = [[0, 0], [20, 85], [40, 155], [60, 258], [70, 258], [75, 415], [80, 715], [85, 1073], [90, 1467],
+             [95, 1871], [100, 2255], [105, 2583]]
+# the output torque referred to the proprotors at 100 % speed (ft lb, 41.57 rad/s): P = 6150 ((n1 - 60) / 45)^2 shp
+torque_line = [[0, 0], [60, 0], [65, 1006], [70, 4022], [75, 9041], [80, 16073], [85, 25114], [90, 36164],
+               [95, 49225], [100, 64293], [105, 81371]]
+rotor_omega = 41.57              # rad/s at 100 % proprotor speed (397 rpm): the torque line's reference
+start_fuel = [1.0, 0.0]          # the spool-up's fuel is the line's
+
+[compressor]                     # the first axial stage, which the inlet radiates
+rotor_blades = 32                # measured (the whine's frequency in cruise; see above)
+stator_vanes = 48                # estimated: 3 vanes for 2 blades, as for the T700
+inlet_guide_vanes = true
+tip_diameter = 0.38              # m, estimated (the flow, about 16 kg/s, at the T700's axial Mach number)
+hub_tip_ratio = 0.45
+stage_pressure_ratio = 1.35      # at design_ng, estimated
+stage_efficiency = 0.86
+rotor_stator_spacing = 60.0      # percent of the rotor chord, estimated
+low_speed_tone_db = [[29.6, 20.9], [67.5, 0.0]]     # the T700's (its recorded start), as none of this engine's was found
+
+[power_turbine]                  # its last stage, which the exhaust radiates
+rotor_blades = 62                # estimated
+tip_diameter = 0.55              # m, estimated
+inlet_area = 0.09                # m^2, the stage's annulus, estimated
+
+[exhaust]
+area = 0.45                      # m^2, estimated (the infrared suppressor's)
+
+[starter]                        # an air turbine starter on the accessory gearbox, the T700's scaled to the flow
+speed_ratio = 2.4                # estimated
+rotor_blades = 31
+tip_diameter = 0.15
+inlet_area = 0.004
+air_flow = 1.1                   # kg/s
+supply_pressure_ratio = 3.4
+supply_temperature_k = 480.0
+exhaust_area = 0.008
+cowl_surface_mass = 4.0          # kg/m^2: inside the nacelle
