@@ -20,6 +20,7 @@ direction of rotation, so the advancing blade is at psi = 90 deg.
   up on the blade through Wagner's indicial response, scaled for compressibility.
 """
 from dataclasses import dataclass, field
+import warnings
 
 import numpy as np
 from numba import njit, prange
@@ -36,11 +37,12 @@ class AeroOptions:
     elastic: bool = True            # use the rotor's elastic blade model when it has one
     wake_dpsi_deg: float = 2.0      # wake discretisation
     wake_revs_max: float = 4.0
-    # tip vortex core and strength: effective values for a lifting line, calibrated so the blade-vortex load swings
-    # match HART II's measured ones (normal force swings of about 0.1 in Cn M^2): with the measured core (about
-    # 0.12 chord) and the full peak circulation a lifting line overpredicts them three- to sixfold, as the real
-    # vortex is displaced and spread by the approaching blade
-    core_radius_chords: float = 0.4
+    # tip vortex core and strength: effective values for a lifting line, calibrated on HART II's own rotor so its baseline
+    # case's 6-40 BPF noise on the microphones' plane comes out at the level measured (mean error about zero, its load's
+    # swings within 1.5 times the measured): with the measured core (about 0.12 chord) and the whole of the peak
+    # circulation a lifting line is 11 dB too loud there, as the real vortex is displaced and spread by the approaching
+    # blade
+    core_radius_chords: float = 0.8
     core_growth_a1: float = 1.0e-4         # Squire / Bhagwat-Leishman turbulent viscosity coefficient
     smooth_core_chords: float = 1.5        # the wide core whose field is left to the inflow model
     near_wake_deg: float = 30.0            # the blade's own vortex is left to the tip loss for this long
@@ -52,6 +54,7 @@ class AeroOptions:
     # blade-wake interaction: turbulence around the older tip vortices, met by the following blades
     wake_turbulence: float = 0.2           # rms turbulent velocity / the vortex's velocity at its turbulent radius
     wake_turbulent_radius_chords: float = 0.5  # turbulent radius after one revolution, chords (grows as sqrt(age))
+    wake_turbulent_core_chords: float = 0.4    # the envelope's radius at the vortex's birth
 
 
 # A tiltrotor's wing under its discs in a hover: it blocks part of each rotor's downwash, which runs inboard along the
@@ -348,7 +351,11 @@ class _BladeModel:
         rhs = np.zeros((n, nf + 1), complex)
         for k in range(nf):
             rhs[:, k] = np.fft.fft(np.sum(fz * phi[k][None, :] * dr[None, :], axis=1)) / n
-        rhs[:, nf] = np.fft.fft(np.sum(ld['mea'] * tsh[None, :] * dr[None, :], axis=1)) / n
+        # the propeller moment: the section's mass off the plane of rotation pulls its pitch towards it. On the elastic twist
+        # it is in the rotating torsion frequency; on the pitch the controls and the built-in twist set, it is a load
+        prop = -md.m * (self.rotor.torsion_gyration * self.chord[None, :]) ** 2 * W ** 2 \
+            * np.sin(ld['pitch']) * np.cos(ld['pitch'])
+        rhs[:, nf] = np.fft.fft(np.sum((ld['mea'] + prop) * tsh[None, :] * dr[None, :], axis=1)) / n
         _, slope0 = self.z_base()
         rhs[0, nf] += np.sum(cf * slope0 * tsh * dr)          # the precone line's slope, steady
         rhs = rhs + np.einsum('nij,nj->ni', Alin, x_old)
@@ -436,9 +443,10 @@ class _BladeModel:
         fz = (L * ut - D * up) / Ue
         ft = -(L * up + D * ut) / Ue
         gamma = 0.5 * U * self.chord[None, :] * cl
-        # pitching moment about the elastic axis, nose up positive (lift acts at the quarter chord)
-        mea = q * self.chord[None, :] ** 2 * (af.moment(alpha, mach) + cl * (self.rotor.elastic_axis - 0.25))
-        return dict(UT=ut, UP=up, alpha=alpha, mach=mach, cl=cl, cd=cd, fz=fz, ft=ft, gamma=gamma, phi=phi, mea=mea)
+        # pitching moment about the elastic axis, nose up positive (lift acts at the quarter chord); q holds one chord
+        mea = q * self.chord[None, :] * (af.moment(alpha, mach) + cl * (self.rotor.elastic_axis - 0.25))
+        return dict(UT=ut, UP=up, alpha=alpha, mach=mach, cl=cl, cd=cd, fz=fz, ft=ft, gamma=gamma, phi=phi, mea=mea,
+                    pitch=theta - the)
 
     def integrate(self, ld):
         T = self.B * np.mean(np.sum(ld['fz'] * self.dr, axis=1))
@@ -521,14 +529,45 @@ def trim(bm, thrust, controls0=None, cyclic=True, tol=1e-5):
             m1c, m1s = tc / tip_ref * m_ref, ts / tip_ref * m_ref
         return ld, lam_i, (T, Q, Mb, m1c, m1s)
 
+    def state():
+        return (bm.q.copy(), bm.p.copy()) if bm.modes is not None else bm.beta0
+
+    def restore(s):
+        if bm.modes is not None:
+            bm.q, bm.p = s[0].copy(), s[1].copy()
+            bm._rebuild()
+        else:
+            bm.set_rigid(s)
+
+    def residual(ev):
+        T, _, _, c, s = ev[2]
+        return np.array([(T - thrust) / t_ref, c / m_ref, s / m_ref])[:n]
+
     J = None
     elastic_change = 1.0
-    for it in range(80):
-        ld, lam_i, (T, Q, Mb, m1c, m1s) = evaluate(u)
-        res = np.array([(T - thrust) / t_ref, m1c / m_ref, m1s / m_ref])[:n]
-        if np.max(np.abs(res)) < tol and elastic_change < 2e-5:
+    radius = 0.05                   # rad: the largest step, shrunk if the iteration runs away
+    best = None                     # the smallest residual so far: (its size, the controls, the elastic state)
+    for it in range(120):
+        ev = evaluate(u)
+        ld, lam_i, (T, Q, Mb, m1c, m1s) = ev
+        res = residual(ev)
+        size = float(np.max(np.abs(res)))
+        if size < tol and elastic_change < 2e-5:
             break
-        if J is None or it % 3 == 0:
+        if it >= 6:                 # by then the elastic state has left its start
+            if best is None or size < best[0]:
+                best = (size, u.copy(), state())
+            elif size > max(3.0 * best[0], 0.05) and radius > 0.005:
+                # running away, a stale Jacobian and the elastic state chasing each other: back to the best point, in
+                # smaller steps from a fresh Jacobian
+                u = best[1].copy()
+                restore(best[2])
+                radius *= 0.5
+                J = None
+                ev = evaluate(u)
+                ld, lam_i, (T, Q, Mb, m1c, m1s) = ev
+                res = residual(ev)
+        if J is None or it % 3 == 0 or radius < 0.05:
             # with the elastic state frozen, as res was evaluated
             J = np.zeros((n, n))
             h = 1e-4
@@ -538,7 +577,7 @@ def trim(bm, thrust, controls0=None, cyclic=True, tol=1e-5):
                 _, _, (T2, _, _, c2, s2) = evaluate(du)
                 J[:, k] = (np.array([(T2 - thrust) / t_ref, c2 / m_ref, s2 / m_ref])[:n] - res) / h
         step = np.linalg.lstsq(J, -res, rcond=None)[0]
-        u[:n] += np.clip(step, -0.05, 0.05)
+        u[:n] += np.clip(step, -radius, radius)
         if bm.modes is not None:
             dtip, dth = bm.update_elastic(ld)
             elastic_change = dtip / bm.R + dth
@@ -546,7 +585,18 @@ def trim(bm, thrust, controls0=None, cyclic=True, tol=1e-5):
             beta0 = bm.coning(Mb)
             elastic_change = abs(beta0 - bm.beta0)
             bm.set_rigid(beta0)
-    ld, lam_i, (T, Q, Mb, m1c, m1s) = evaluate(u)
+    ev = evaluate(u)
+    if best is not None and float(np.max(np.abs(residual(ev)))) > best[0]:
+        u = best[1].copy()
+        restore(best[2])
+        ev = evaluate(u)
+    ld, lam_i, (T, Q, Mb, m1c, m1s) = ev
+    # against the thrust asked for, or near none (a run-up at flat pitch) the rotor's own scale: 0.001 in C_T / sigma
+    miss = abs(T - thrust) - 0.001 * sigma * bm.rho * bm.area * bm.vtip ** 2
+    if miss > 0.1 * t_ref:
+        raise ValueError(f"the trim failed: {T:.0f} N of the {thrust:.0f} N asked for, at advance ratio {bm.mu_x:.3f}")
+    if miss > 0.02 * t_ref:
+        warnings.warn(f"the trim fell short: {T:.0f} N of the {thrust:.0f} N asked for, at advance ratio {bm.mu_x:.3f}")
     return u, lam0, lam_i, ld, (T, Q)
 
 
@@ -866,7 +916,7 @@ def _wake_turbulence(bm, ld, lam0, opts):
     sel = bm.x >= 0.5
     gam_v = opts.rollup * np.maximum(np.max(ld['gamma'][:, sel], axis=1), 0.0)
     c_tip = float(rot.chord_at(1.0))
-    rc0 = opts.core_radius_chords * c_tip
+    rc0 = opts.wake_turbulent_core_chords * c_tip
     rt = np.sqrt(rc0 ** 2 + (opts.wake_turbulent_radius_chords * c_tip) ** 2 * zeta / (2.0 * np.pi))
     n_near = int(np.ceil(np.radians(opts.near_wake_deg) / (step * dpsi)))
     u2, lw = _turbulence_kernel(bm.x, np.ascontiguousarray(bm.z), np.cos(bm.psi), np.sin(bm.psi),

@@ -33,7 +33,7 @@ axis = [0.0, 0.0, 1.0]
 # gimballed hub; stiff proprotor blades
 coning_frequency = 1.6
 torsion_frequency = 6.0
-airfoil = { name = "NACA 64-series", thickness = 0.12, cl_max = 1.4, cd0 = 0.008, mach_dd = 0.78 }
+airfoil = { name = "NACA 64-(1.5)12", table = "xn12_v22", thickness = 0.12, cm0 = -0.03 }
 
 [[rotor]]
 name = "left"
@@ -56,4 +56,4 @@ axis = [0.0, 0.0, 1.0]
 # gimballed hub; stiff proprotor blades
 coning_frequency = 1.6
 torsion_frequency = 6.0
-airfoil = { name = "NACA 64-series", thickness = 0.12, cl_max = 1.4, cd0 = 0.008, mach_dd = 0.78 }
+airfoil = { name = "NACA 64-(1.5)12", table = "xn12_v22", thickness = 0.12, cm0 = -0.03 }

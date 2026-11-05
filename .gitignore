@@ -8,3 +8,4 @@ build/
 dist/
 out/
 .DS_Store
+report/pywopwop_report.pdf

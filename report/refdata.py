@@ -1,0 +1,109 @@
+"""The measurements the report compares with, transcribed or digitised, each with its source. The tables digitised from
+figures are in report/data/*.json.
+
+Rotors
+  XV15_HOVER  NASA TM-86833 (Felker, Betzina and Signor, 1985), fig. 14(c): the full-scale XV-15 rotor, metal blades,
+              isolated, out of ground effect, tip Mach number 0.69: the report's curve fit through the wind-corrected
+              data; sigma 0.0891 (traced from the scan, about +-0.0001 in CP/sigma).
+  BO105_HOVER NASA TM-85892 (Peterson and Warmbrodt, 1984), appendix B: the full-scale Bo 105 rotor at 425 rpm on NASA
+              Ames' Rotor Test Apparatus, shaft 10 deg forward, flapping nulled, with the tunnel's air speed at each point
+              (appendix A: the rotor drove air through the test section, its doors open). sigma 0.07.
+  UH60_*      USAAEFA 83-24 app. E fig. 3 (the hover fit) and USAAEFA 77-17 app. E figs. 15-26 (level flight: faired C_P
+              against advance ratio and C_T): both engines' output power, so main and tail rotor, transmission and
+              accessories, on the main rotor's disc.
+
+HART II (the 40 % Mach scaled Bo 105 rotor in the DNW's open jet, 2001)
+  Lim et al., 29th European Rotorcraft Forum, 2003, paper 18, table 1 and fig. 2, fig. 7, table 3. report/data/:
+  hart2_bl_loads.json  fig. 2, BL5.3, the measured M^2 c_n at r/R = 0.87 (the curve's centre line, every 2 deg);
+  hart2_bl_noise.json  fig. 7, BL5.3, measured, the 6-40 BPF level (dB) on the microphones' plane, 2.215 m under the
+                       hub, read off the map's colours at the 0.45 m microphone spacing and every 0.5 m along the tunnel
+                       (each colour a 2 dB band; 104 and 106 share one). The map's "-x" axis runs downstream: its top is
+                       upstream, by the paper's own words (the minimum noise case's advancing lobe "moved forward", towards
+                       the top, the minimum vibration case's "moved back", and the baseline "quiet in the front").
+  Blade torsion and flap frequencies per rev from the same paper (the prediction teams' 1.11 and 3.65). The elastic and
+  mass axes and the Lock number, not given there, are the quarter chord and the Bo 105's.
+
+XV-15 rotor on NASA's outdoor stand
+  report/data/xv15_stand_noise.json: NASA CR-177436 (Bartie, Alexander, McVeigh et al., 1986) figs. 9.1 and 9.2: overall level
+  against thrust, metal blades, tip Mach number 0.69, traced from the scan: near field 2 ft outboard of the tip path and 8 ft under the
+  disc (a tiltrotor's fuselage side in airplane mode), far field 250 ft out, 15 deg below the disc plane.
+
+Outside levels
+  MV22_*      Japan's Ministry of Defense, MV-22 pamphlet, 2012, pp. 12-13: maximum levels, dBA (their hover's height and
+              the listener's direction aren't stated).
+  XV15_*      Rutledge, Coffen and George, 1991 (NTRS 19930045417), figs. 12 and 15: hover over ground boards at 57.2
+              rotor radii: pressure swings read off the time histories. George, 1996, NASA CR-203040: fences on a 1/12
+              scale model's wings took 4.1 dBA off behind the aircraft.
+
+Engines
+  T700_GE     GE's nonlinear simulation, NASA TM-105805, table 1: Ng %, compressor delivery psi, power turbine inlet R.
+  AE1107C     published design point: pressure ratio 16.7, 15.9 kg/s, turbine inlet 1209 C.
+"""
+
+HART2 = dict(radius=2.0, blades=4, rpm=1041.0, chord=0.121, root_cutout=0.22, twist=-8.0, precone_deg=2.5, flap_frequency=1.11,
+             torsion_frequency=3.65, thrust_n=3250.0, speed_ms=33.0, alpha_deg=5.3, mic_below_hub_m=2.215)
+
+XV15_HOVER = dict(sigma=0.0891, mtip=0.69,
+                  ct_s=[0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18],
+                  cp_s=[0.00256, 0.00211, 0.00218, 0.00262, 0.00322, 0.00385, 0.00464, 0.00549, 0.00644, 0.00754, 0.00865,
+                        0.00982, 0.01117, 0.01269, 0.01419, 0.01607, 0.01824, 0.02039, 0.02364])
+
+# NASA TM-103867 (Peterson and Johnson, 1991) fig. 5: the steady torsion moment at r/R = 0.34 (in lb) against CT/sigma
+BO105_TORSION_034 = [(0.010, -320.0), (0.025, -425.0), (0.035, -450.0), (0.060, -480.0), (0.065, -490.0), (0.075, -470.0), (0.10, -500.0)]
+
+# (theta at 0.7 R deg, CT/sigma, CP/sigma, tunnel kt)
+BO105_HOVER = dict(sigma=0.07, rpm=425.0, rho=1.2, shaft_deg=10.0,
+                   points=[(3.3, -0.000044, 0.001087, 3.9), (6.7, 0.019913, 0.001842, 4.3), (8.9, 0.041104, 0.003093, 0.0),
+                           (11.2, 0.061961, 0.004791, 6.3), (13.0, 0.078788, 0.006412, 0.0), (14.9, 0.104688, 0.009573, 11.0),
+                           (16.5, 0.119362, 0.012141, 6.7)])
+
+
+# NASA TM-110356 (Peterson, 1995) fig. 21(d): the full-scale Bo 105 rotor in the 40 x 80 ft tunnel, 425 rpm, shaft 10 deg forward, flapping
+# minimised, CT/sigma 0.07: (advance ratio, CP/sigma), read from the symbols
+BO105_FORWARD = dict(sigma=0.07, ct_s=0.07, shaft_deg=10.0, rho=1.2, rpm=425.0,
+                     points=[(0.0714, 0.00410), (0.1417, 0.00416), (0.1767, 0.00443), (0.2120, 0.00484), (0.2823, 0.00589), (0.2823, 0.00599),
+                             (0.3289, 0.00669)])
+
+
+def uh60_hover_cp(ct):
+    """USAAEFA 83-24's fit for the first-year aircraft, tethered at 100 ft"""
+    if ct < 0.007:
+        return 8.06470e-5 + 0.99309 * ct ** 1.5
+    return 2.55577e-4 + 0.395715 * ct ** 1.5 + 510.0 * ct ** 3
+
+
+# C_P x 1e5 against advance ratio, by C_T x 1e4
+UH60_LEVEL = {0.12: {65: 33.78, 80: 45.50}, 0.14: {65: 32.89, 80: 42.79}, 0.16: {65: 32.32, 80: 40.91},
+              0.18: {65: 32.05, 80: 39.92}, 0.20: {65: 32.09, 80: 39.68}, 0.22: {65: 33.14, 80: 40.44},
+              0.24: {65: 34.70, 80: 41.94}, 0.26: {65: 38.01, 80: 45.47}, 0.28: {65: 41.86, 80: 49.54},
+              0.30: {65: 46.87, 80: 55.17}, 0.32: {65: 53.60, 80: 62.16}}
+
+# NASA/CR-2005-213938 (Rackl and Weston, 2005) fig. 5: the Tu-144LL in flight at Mach 0.74, 16,400 ft: wall pressure in a window blank in the
+# middle of the fuselage, about 30 m from the nose of a 65.7 m aircraft: Hz, dB re 20 uPa in 1 Hz, the sensors' middle read from the figure
+TU144 = dict(mach=0.74, alt_m=16400 * 0.3048, x_m=30.0, f=[100, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 4000, 5000, 8000, 10000],
+             level=[98.3, 98.0, 98.6, 98.8, 98.3, 97.8, 96.8, 95.8, 94.2, 93.0, 92.0, 90.6, 90.0])
+
+# Noise and Military Service (National Academies, 2006) table 3-1, from the US Army Center for Health Promotion and Preventive Medicine (2004):
+# in flight, the condition not stated, dBA
+ARMY_COCKPIT_DBA = dict(uh60a_pilot=106.0, uh60a_copilot=106.0, ch47d=103.0, yah64_pilot=104.0, yah64_copilot=101.0)
+
+MV22_HOVER_DBA = {50.0: 105.3, 100.0: 100.4, 200.0: 95.5, 500.0: 84.5}
+MV22_AIRPLANE_DBA = {152.4: 88.0, 304.8: 81.0, 457.2: 78.0}         # directly below at 220 kt: 500, 1000, 1500 ft
+
+XV15_BOARD = dict(radii=57.2, ahead_pa=2.0, behind_23_pa=5.0, behind_46_pa=15.0, fences_dba=4.1)
+
+T700_GE = [(87.5, 132.0, 1472.0), (91.4, 161.7, 1578.0), (94.5, 188.9, 1675.0), (96.7, 212.3, 1778.0), (98.5, 231.5, 1896.0),
+           (99.5, 240.5, 1954.0)]
+AE1107C = dict(pressure_ratio=16.7, flow_kg_s=15.9, t4_c=1209.0)
+
+# read off an ASK 21's instruments in a roll (a video, about 19 s): t s, ASI km/h; t s, load factor. Where the ASI misreads (in the
+# slips) it is interpolated
+ROLL_ASI = [(0, 136), (0.5, 138), (1, 144), (1.5, 147), (2, 150), (2.5, 154), (3, 157), (3.5, 160), (4, 163), (4.5, 160), (5, 157),
+            (5.5, 157), (6, 150), (6.5, 150), (7, 142), (7.5, 146), (8, 141), (8.5, 130), (9, 128), (9.5, 125), (12, 150), (12.4, 155),
+            (13, 155), (13.6, 155), (14, 158), (14.4, 160), (14.8, 160), (17.2, 160), (17.4, 165), (17.6, 168), (18, 166), (18.5, 171),
+            (19, 173)]
+ROLL_G = [(0, 1.4), (0.5, 1.6), (1, 1.8), (1.5, 2.3), (2, 2.8), (2.5, 2.9), (3, 3.0), (3.5, 3.3), (4, 3.5), (4.5, 3.5), (5, 3.5),
+          (5.5, 3.5), (6, 3.4), (6.5, 3.3), (7, 2.7), (7.5, 2.4), (8, 1.7), (8.5, 1.2), (9, 0.1), (9.5, 0.0), (10, 0.0), (10.5, 0.4),
+          (11, 1.0), (11.5, 1.5), (12, 1.6), (12.5, 2.8), (13, 3.3), (13.5, 3.8), (14, 4.0), (14.5, 4.0), (15, 3.0), (15.5, 1.8),
+          (16, 1.6), (16.5, 2.6), (17, 3.5), (17.5, 4.3), (18, 4.5), (18.5, 4.5), (19, 4.6)]
+ROLL_GAPS = [(9.5, 12.0), (14.8, 17.2)]

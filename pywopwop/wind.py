@@ -1,7 +1,8 @@
 """Wind noise in the cockpit: the turbulent boundary layer's pressure fluctuations on the windscreen, heard through it.
 
-The boundary layer at the windscreen is a turbulent flat plate's from the nose (the 1/7-power law: delta = 0.37 x
-Re_x^-1/5, C_f = 0.0592 Re_x^-1/5), at the true airspeed and the air's density and viscosity. The wall pressure's
+The boundary layer at the windscreen is a turbulent flat plate's from the nose (delta = 0.37 x Re_x^-1/5 by the 1/7-power
+law, and White's skin friction, C_f = 0.455 / ln^2(0.06 Re_x), which holds to an airliner's Reynolds numbers), at the true
+airspeed and the air's density and viscosity. The wall pressure's
 spectrum is Goody's (AIAA J. 42(9), 2004) shape,
 
     phi(omega) U / (tau_w^2 delta) = 3 w^2 / ((w^0.75 + 0.5)^3.7 + (1.1 R_T^-0.57 w)^7),   w = omega delta / U,
@@ -46,7 +47,7 @@ def boundary_layer(U, x, atm):
     nu = atm.nu
     re = U * x / nu
     delta = 0.37 * x * re ** -0.2
-    tau = 0.5 * atm.rho * U ** 2 * 0.0592 * re ** -0.2
+    tau = 0.5 * atm.rho * U ** 2 * 0.455 / np.log(0.06 * re) ** 2      # White's: the 1/7 law's 0.0592 Re^-0.2 falls short past 10^7
     ut = np.sqrt(tau / atm.rho)
     return delta, tau, ut * delta / nu, (delta / U) / (nu / ut ** 2)
 

@@ -137,6 +137,7 @@ def _at_collective(rot, omega, theta75, rho, c, nu, opts, ground_height, w_ref):
     trim's collective"""
     from dataclasses import replace
     opts = replace(opts, bvi=False)
+    w_ref = w_ref * (omega / rot.omega) ** 2        # what the rotor can make at this speed
     ts = [0.05 * w_ref, 0.2 * w_ref]
     sols = [solve_rotor(rot, omega, 0.0, 0.0, t, rho, c, nu, opts, ground_height) for t in ts]
     for _ in range(12):

@@ -9,6 +9,9 @@ outside, and a FlightGear sound configuration that blends them. Also gliders' ai
 You give it a rotor's published geometry: radius, blades, chord, twist, airfoil, rpm, and a few structural
 frequencies. No CFD and no external comprehensive analysis are needed.
 
+How it works, and the comparisons with closed forms, rotor tests, published levels and recordings test by test, are
+in the report: [PyWopWop-report.pdf](PyWopWop-report.pdf).
+
 ## What it computes
 
 | Stage | Model |
@@ -16,8 +19,8 @@ frequencies. No CFD and no external comprehensive analysis are needed.
 | Sections | Lift, drag and pitching moment tables against angle of attack and Mach number (C-81 decks, GenHel), smoothed for acoustics; real section shapes (coordinate files, NACA four- and five-digit with camber) for the blade surface |
 | Trim | Aircraft weight and drag balanced by the rotor; collective and cyclic for the thrust with no flapping relative to the tip-path plane; tail rotor carries the main rotor's torque |
 | Inflow | Blade-element momentum theory with Prandtl tip loss in the hover, Glauert and Drees in forward flight, an empirical bridge through the vortex ring state |
-| Elastic blades | Rotating-beam flap modes (hinged or clamped root; a hingeless rotor cones by bending) and a torsion mode, coupled by the section CG's offset and the aerodynamics, solved by harmonic balance |
-| Blade-vortex interaction | Beddoes' prescribed tip-vortex wake released from the deflected tip, Vatistas cores growing with age, Biot-Savart velocity sampled over the chord, Wagner's indicial lift response; the effective core and roll-up calibrated so the load swings match HART II's measured ones |
+| Elastic blades | Rotating-beam flap modes (hinged or clamped root; a hingeless rotor cones by bending) and a torsion mode, coupled by the section CG's offset and the aerodynamics, loaded by the section's moment and the propeller moment, solved by harmonic balance |
+| Blade-vortex interaction | Beddoes' prescribed tip-vortex wake released from the deflected tip, Vatistas cores growing with age, Biot-Savart velocity sampled over the chord, Wagner's indicial lift response; the effective core calibrated so HART II's measured noise map comes out at its level |
 | Unsteadiness | Revolutions computed with their own turbulent gusts (frozen von Kármán field) and tip-vortex wander and strength; each blade morphs between them from one passage to the next, so no two slaps are alike |
 | Blade-wake interaction | The turbulence around the older tip vortices met by the following blades (Landgrebe's hover wake, Beddoes' in forward flight), through Amiet's inflow noise: the swish and the crackle around the slap |
 | Tonal noise | Farassat's Formulation 1A: thickness from the real blade surface, loading over the chord; closed-form reception times, analytic kinematics including the elastic motion |
@@ -307,15 +310,15 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   ground the run-up loops add up to one at any rotor speed, and off it the flight conditions' do.
 - Against UH-60 recordings made in the cabin (videos; their camera's automatic gain cancels in the ratios used): the
   T700's whine settles at idle on two tones at exactly 10:11, 10.06 and 11.06 kHz, which 20 and 22 blades give at
-  67.5 % Ng, and sits at 13.0 kHz at FLY on the ground and 14.05 kHz in the hover (87 and 94 % Ng). Closing the cabin's
-  doors takes 18.3 dB off the whine at 10 kHz while the cabin's own sounds stay put; the model's walls take 19.0 dB.
-  The gearbox's tones sit at the planetary mesh's 980 Hz and its harmonics and grow by about 12 dB from flat pitch to
-  the hover, as their amplitude with the torque gives.
+  67.5 % Ng, and sits at 12.9 kHz at FLY on the ground and 14.04 kHz in the hover (87 and 94 % Ng). The gearbox's
+  planetary mesh stands at 993 Hz (980 at 100 % rotor speed), its line growing about 22 dB over the floor beside it
+  from flat pitch to the hover, more than its amplitude with the torque gives. No recording shows the cabin's doors'
+  effect (an earlier check here read one narrow window as the whine drifted out of it): that stays a prediction.
 - Against ASK 21 cockpits recorded in aerobatics (two videos; their cameras' gain is unknown, so only spectral shapes
   and growth with airspeed): in the first, its airspeed read off the ASI's needle frame by frame, the canopy's hiss
   keeps the model's spectrum within 1.5 dB from 315 Hz to 6.3 kHz at 50 to 115 kt (a 30 dB cap on the canopy's
-  transmission loss for leaks had left it flat from 2 kHz up, 6 to 8 dB too bright), and from 400 Hz to 8 kHz it
-  grows as the airspeed to the power 1.8, the model's 2.0. The second, without the first's whistle, keeps the model's
+  transmission loss for leaks had left it flat from 2 kHz up, 6 to 8 dB too bright), and from 400 Hz to 8 kHz its
+  power grows as the airspeed to the power 2.2, the model's 1.9, though from 3 to 8 kHz faster than the model's. The second, without the first's whistle, keeps the model's
   shape within 2 dB from 400 Hz to 4 kHz. Above 5 kHz both fall faster than the model, 5 to 10 dB at 8 kHz and 10 to
   25 dB above 10 kHz, and below 250 Hz both have more (10 to 25 dB in the first): how much of that their cameras'
   microphones and mounts make can't be told from the cockpit's. The first glider's whistle, at about 25 Hz per knot
@@ -401,16 +404,26 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   73.9, its listeners sinking towards the disc's plane, which the table's 4.9 dB a doubling doesn't fit. Its engine
   test (100.4 dBA at 50 m) can't be compared: the MV-22B has no ground run here.
 
+- Against NASA's XV-15 rotor on its outdoor stand (CR-177436), with nothing fitted: the overall level from 200 to
+  10,500 lb of thrust 2 ft from the tip path, the dip where the twisted blade's tip unloads included, and at 76 m.
+- Against the Bo 105's measured torsion moment (TM-103867) and HART II's tip twist, and HART II's noise map and airloads.
+- Against wall pressure measured in flight on the Tu-144LL (NASA CR-2005-213938), Mach 0.74: the spectrum's shape within
+  0.7 dB rms from 100 Hz to 10 kHz, its level 2.4 dB under.
+  `report/mkresults.py` runs all of these; the report has the numbers.
+
 ## Limits
 
-The blade-vortex interaction is calibrated to HART II's airloads, the blade-wake interaction's turbulence and the
-unsteadiness to plausible values, and the loops were checked against recordings for their texture (how alike
-successive blade passages are, tones against noise); absolute levels are not calibrated against flight tests.
+The blade-vortex interaction's effective core is calibrated to HART II's noise, the blade-wake interaction's
+turbulence and the unsteadiness set to plausible values, and the loops were checked against recordings for their
+texture (how alike successive blade passages are, tones against noise). A rotor's absolute level is checked against
+NASA's stand and HART II (the report); a cabin's only against the Army's 106 dBA in a UH-60A's cockpit, which stands 3 to
+6 dB over the model's.
 Linear acoustics (no transonic delocalisation above about Mach 0.9 at the advancing tip), a prescribed rather
 than free wake, modal blades with uniform properties and no lag motion, no fuselage scattering, and no gearbox
 or main rotor wake on the tail rotor. One section per rotor (the UH-60's SC1095 tables with SC1094R8
 coordinates for the whole blade; the MV-22B's XN12, the 0.75 R section, with a 12 % thickness for the whole blade,
-whose tip is 9 %); the XV-15 and the quadcopter, whose section tables aren't public, use the smooth section model.
+whose tip is 9 %, and the XV-15's 64-(1.5)12 by the same table); the quadcopter uses the smooth section model, whose
+abrupt stall limits a rotor's thrust early. A trim that can't reach its thrust stops with an error.
 The tiltrotors fly with their nacelles vertical and their rotors carrying all the weight (no wing lift), or in
 airplane mode from given trims; the conversion between them is not modelled. Their wing is a source with the
 nacelles below 30 degrees only, by strip theory, the blades' vortices passing through it uncut; in a hover its
@@ -421,6 +434,19 @@ wind is an attached boundary layer's: no separated flow round the windscreen's f
 compressibility (past about Mach 0.5). The cabin's interior absorption is a trimmed cabin's, estimated, for every
 aircraft that doesn't give its own. Exported loops are high-passed at 25 Hz (`--highpass`), as a recording chain is: a main rotor's
 blade-passing fundamental (10 to 30 Hz) is felt more than heard.
+
+## Rebuilding the report
+
+The [`report`](report) folder holds what produced [the report](PyWopWop-report.pdf): `mkresults.py` runs the test
+programme into `report/results/` (some stages read recordings kept out of the repository and the FlightGear aircrafts'
+sounds; their results are kept, so the report rebuilds without them), `refdata.py` and `report/data/` hold the
+measurements compared with and their sources, and `build.sh` makes every table, number and figure from the results and
+builds the PDF with [tectonic](https://tectonic-typesetting.github.io).
+
+```bash
+python report/mkresults.py
+report/build.sh
+```
 
 ## Licence
 
