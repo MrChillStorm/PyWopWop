@@ -411,6 +411,8 @@ def _low_speed(src, c, ng):
         src.tones = [(f, m * g) for f, m in src.tones]
 
 
+# log10 of the directivity and the spectrum: SAE ARP 876E's tables 18 and 17, filled in from ANOPP's (NASA TM-83199
+# part 2, section 8.2), whose own 1982 tables differ by up to 0.43 below the peak
 _D_COMB = np.array([-0.85, -0.8, -0.75, -0.7, -0.65, -0.6, -0.53, -0.46, -0.39, -0.16, 0.08, 0.31, 0.5, 0.35, 0.12,
                     -0.19, -0.51, -0.8, -0.9])
 _S_COMB = (np.arange(-1.1, 1.61, 0.1),
@@ -492,7 +494,7 @@ def jet_noise(v, rho_j, area, atm=None):
     w = np.interp(lv, *_OMEGA)
     P = 10.0 ** np.interp(lv, *_PJ)
     power = 6.67e-5 * (rho_j / atm.rho) ** w * (v / atm.c) ** 8 * P * atm.rho * atm.c ** 3 * area
-    eta = BANDS / (0.2 * v / np.sqrt(4.0 * area / np.pi))
+    eta = BANDS / (0.12 * v / np.sqrt(4.0 * area / np.pi))         # the bands peak at eta 2.45: a Strouhal number of 0.3 (NACA 1329)
     S = eta ** 2 / (1.0 + eta ** 2) ** 1.75 * BANDS
     out.bands = atm.rho * atm.c * power * S / S.sum() / (4.0 * np.pi)
     return out

@@ -196,7 +196,7 @@ system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turb
 | Jet | the exhaust's mixing noise, SAE ARP 876's acoustic power |
 | Starter | the air turbine starter while it cranks: its turbine's tones and broadband (GE's method) through the engine's cowling (mass law), its exhaust ducted overboard; the bleed air reaches it choked, so its loading holds as it speeds up |
 | APU | by its recorded signature (`presets/apu/`): its shaft's orders and its broadband spectrum moving with its speed, their power with the speed to the 5th |
-| Transmission | the main gearbox's mesh tones at their tooth counts' frequencies, with harmonics and the planets' or shafts' sidebands, heard inside through the roof (doors open or shut alike), their amplitude with the engines' torque; where it has been measured (the MV-22B), the drive's and engines' structure-borne roar, their vibration reaching the cabin's frames through the airframe, as third octaves at the pilot moving with the rotor speed and the torque, and swelling and fading with its load's ripple at the blade rate |
+| Transmission | the main gearbox's mesh tones at their tooth counts' frequencies, with harmonics and the planets' or shafts' sidebands, heard inside through the roof (doors open or shut alike), their amplitude with the engines' torque; where it has been measured (the MV-22B, the UH-60A), the drive's and engines' structure-borne roar, their vibration reaching the cabin's frames through the airframe, as third octaves at the pilot moving with the rotor speed and the torque, and swelling and fading with its load's ripple at the blade rate |
 | Cabin | the walls between the outside and the pilot by area: skin and windows as panels with their coincidence dips (Sharp's transmission loss), a trimmed sidewall as a double wall (`trim_mass`, `trim_gap`: the skin and a trim panel with blankets between, by Fahy's mass-air-mass law, far tighter than one wall above its resonance), leaks, and what opens (doors, windows) by its share of the area (composite transmission); inside, the transmitted sound built up in a diffuse field as the interior's losses let it (1/alpha: a trimmed cabin absorbs little below 250 Hz and most above 1 kHz, so its lows build up and its highs don't, though the lowest leak back out through the walls, the room's loss too), from the cockpit's lowest mode up. With the fuselage described (`fuselage`: its sections round the cockpit and the cabin open to it, each a rounded rectangle of a given squareness; `glazing`: where its windows are, each patch passing through the windows' panel or the opaque wall's), the rotors are heard through the pressure on its walls rather than at the listener's head: below the lowest mode their area-weighted mean (one pressure chamber), above it their powers (a diffuse field, each harmonic a draw of the cabin's modal response, Schroeder's complex Gaussian: a random phase, levels scattered by 5.6 dB rms, so a few lines stand on resonances), each patch also heard directly by the listener (Sabine's direct field, A / 8 pi r^2 against A / S alpha). Near a blade most of that pressure is its hydrodynamic footprint (the radiation formula's terms falling as 1/r^2), which sweeps along the skin at the tip's speed and drives it as a boundary layer's eddies do, poorly below its hydrodynamic coincidence; only the radiating terms pass as sound |
 | Synthesis | tones scattered into narrow bands by the turbulence in the inlet and the wakes, the shafts' speeds wandering, the combustion's roar swelling and fading; absorption and the ground as for the rotors |
 
@@ -247,16 +247,16 @@ GE's). Outside, on the ground 50 m to the right, one engine makes 69 dBA at idle
 power, the combustion's roar and the power turbine's hiss leading; the APU 83. Measured round a UH-60 on the ground,
 the 85 dBA contour reaches past 100 ft and the crew's positions have 105 dBA or more, the worst near the APU (Jones et
 al. 2018). In the cockpit with the doors shut: on the ground the APU leads at 78-80 dBA (an idling engine 62-66); at
-FLY on the ground the gearbox 87, the engines 72 and the rotor 70; in the hover the gearbox 102 dBA over the rotor's
-85 and the engines' 74, about the 100-105 dBA reported in such cabins. With the cabin doors open the outside sources come in
-10-12 dB louder (the APU about 90 dBA, the idling engines 85). On a start the APU's whistle and roar come first, then the
+FLY on the ground the drive leads; in the hover the drive (its mesh tones and its vibration through the airframe) 103
+dBA over the rotor's 83 and the engines' 80, between NASA's measured 97 and the Army's 106. With the cabin doors open the
+outside sources come in 10-12 dB louder (the APU about 90 dBA, the idling engines 85). On a start the APU's whistle and roar come first, then the
 compressor's two-tone whine while the starter cranks, rising through the kilohertz to idle; after a shutdown the whine
 falls with Ng.
 
 Measured from recordings (each marked in its preset): the first two compressor stages' blade counts (20 and 22), the
 second stage's level through the first, the whine's level at low speed (Heidmann's method makes it about 20 dB too
 quiet while cranking, far from the compressor's design), the APU's tones, spectrum and level, and the gearbox's tones
-relative to each other (their level from NASA's review: about 103 dB in a cabin of this class). Estimated, as no
+relative to each other, and their level and the drive's bands from a calibrated spectrum at the pilot's seat at 120 kt. Estimated, as no
 public source gives them: the vane counts, the stages' diameters and pressure ratios, the rotor-stator spacing, the
 power turbine's last stage, the exhaust's area, the air turbine starter, the cabin's walls (`presets/engines/t700.toml`
 and `presets/uh60a.toml` say which). GE's and Heidmann's methods are empirical, good to about 5 dB in level. Not
@@ -407,6 +407,15 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
 - Against NASA's XV-15 rotor on its outdoor stand (CR-177436), with nothing fitted: the overall level from 200 to
   10,500 lb of thrust 2 ft from the tip path, the dip where the twisted blade's tip unloads included, and at 76 m.
 - Against the Bo 105's measured torsion moment (TM-103867) and HART II's tip twist, and HART II's noise map and airloads.
+- Against the FAA's calibrated UH-60A flights (FAA-EE-81-16), nothing fitted: under the path, eight level flights and
+  four 6 degree approaches, +1.8 dB on average and 3.0 dB rms, the approaches 4 dB high. Two real misses: from 100 to 152 kt
+  the test rises 6 dB and the model doesn't, and 150 to 284 m beside the path the model is 5 to 7 dB too quiet.
+- Against a UH-60A's cockpit: calibrated on the octave bands at the pilot's seat at 120 kt, the model follows NASA's levels
+  with speed (TM-84664) within 1.2 dB, 5.4 dB over them.
+- Against NASA's flyovers of a Prue-2 glider (CR-2377): the ASK 21 model keeps the spectrum's shape within 1.9 dB rms at
+  each speed, 3 to 6 dB low.
+- Against NASA's YF-102 (TM-73748, TM-88971): GE's combustion noise keeps the shape within 3.5 dB rms and the directivity
+  within 1.9. Flight tests put it 10 to 21 dB over modern turbofans; 10 dB off a T700's would take under 2 dB off the engine.
 - Against wall pressure measured in flight on the Tu-144LL (NASA CR-2005-213938), Mach 0.74: the spectrum's shape within
   0.7 dB rms from 100 Hz to 10 kHz, its level 2.4 dB under.
   `report/mkresults.py` runs all of these; the report has the numbers.
@@ -416,8 +425,8 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
 The blade-vortex interaction's effective core is calibrated to HART II's noise, the blade-wake interaction's
 turbulence and the unsteadiness set to plausible values, and the loops were checked against recordings for their
 texture (how alike successive blade passages are, tones against noise). A rotor's absolute level is checked against
-NASA's stand and HART II (the report); a cabin's only against the Army's 106 dBA in a UH-60A's cockpit, which stands 3 to
-6 dB over the model's.
+NASA's stand, HART II and the FAA's UH-60A flyovers (the report); a cockpit's against calibrated UH-60A surveys that
+differ from each other by 8 dB, and the model is 8 to 10 dB high there below 100 Hz.
 Linear acoustics (no transonic delocalisation above about Mach 0.9 at the advancing tip), a prescribed rather
 than free wake, modal blades with uniform properties and no lag motion, no fuselage scattering, and no gearbox
 or main rotor wake on the tail rotor. One section per rotor (the UH-60's SC1095 tables with SC1094R8

@@ -382,6 +382,93 @@ def wind():
     save(fig, "wind")
 
 
+def cockpit():
+    c = res("cockpit")
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.05))
+    ax = axs[0]
+    fc = c["fc"]
+    r = next(q for q in c["rows"] if q["kt"] == 120)
+    ax.semilogx(fc, c["pilot"]["bands"], "o-", color=C_TEST, ms=3, lw=0.8, label="pilot (Mace et al.)")
+    ax.semilogx(fc, c["copilot"]["bands"], "s:", mfc="none", color=C_REF, ms=3, lw=0.7, label="copilot")
+    ax.semilogx(fc, r["octaves"], "-", color=C_MOD, lw=1.3, label="model")
+    for k, col in (("rotors", "#2166ac"), ("drive", "#ef8a62"), ("wind", "#1b7837")):
+        ax.semilogx(fc, r["part_octaves"][k], "--", color=col, lw=0.7, label=k)
+    ax.set_ylim(60, 122)
+    ax.set_xlabel("octave band, Hz")
+    ax.set_ylabel("level, dB")
+    ax.legend(ncol=2, loc="lower left")
+    tag(ax, "a")
+    ax = axs[1]
+    kts = [q["kt"] for q in c["rows"]]
+    ax.plot(kts, [q["dba"] for q in c["rows"]], "-", color=C_MOD, label="model")
+    ax.plot(kts, [c["nasa"][str(k)] for k in kts], "o", mfc="none", mec=C_TEST, ms=3.6, mew=0.8, ls="none", label="NASA TM-84664")
+    ax.plot([120, 120], [c["copilot"]["dba"], c["pilot"]["dba"]], "s", mfc="none", mec=C_OLD, ms=3.6, mew=0.8, ls="none", label="Mace et al.")
+    ax.axhline(c["army"]["uh60a_pilot"], color=C_REF, lw=0.7, ls=":", label="US Army")
+    ax.set_xlabel("airspeed, kt")
+    ax.set_ylabel("level at the pilots, dBA")
+    ax.legend(ncol=2, loc="lower right")
+    ax.set_ylim(86, 108)
+    tag(ax, "b")
+    fig.tight_layout(w_pad=1.2)
+    save(fig, "cockpit")
+
+
+def flight():
+    f = res("flight")["rows"]
+    p = res("prue")["rows"]
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.05))
+    ax = axs[0]
+    lv = [q for q in f if q["fpm"] == 0]
+    ap = [q for q in f if q["fpm"] != 0]
+    ax.plot([q["test_dba"] for q in lv], [q["dba"] for q in lv], "o", mfc="none", mec=C_MOD, ms=4, mew=0.9, ls="none", label="level flyovers")
+    ax.plot([q["test_dba"] for q in ap], [q["dba"] for q in ap], "^", mfc="none", mec=C_OLD, ms=4.5, mew=0.9, ls="none", label="6 deg approach")
+    ax.plot([76, 94], [76, 94], "-", color=C_REF, lw=0.7)
+    ax.set_xlabel("measured maximum, dBA")
+    ax.set_ylabel("model, dBA")
+    ax.legend(loc="upper left")
+    tag(ax, "a")
+    ax = axs[1]
+    for q, c in zip(p, ("#2166ac", "#1b7837", C_MOD)):
+        ax.semilogx(q["f"], q["model"], "-", color=c, lw=0.9, label="%.0f kt" % q["kt"])
+        ax.plot(q["test_f"], q["test"], "o", mfc="none", mec=c, ms=3.4, mew=0.8, ls="none")
+    ax.set_xlim(150, 7000)
+    ax.set_xticks([200, 500, 1000, 2000, 5000], ["200", "500", "1000", "2000", "5000"])
+    ax.set_xticks([], minor=True)
+    ax.set_ylim(0, 45)
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("third octave, dB")
+    ax.legend(loc="lower left")
+    tag(ax, "b")
+    fig.tight_layout(w_pad=1.2)
+    save(fig, "flight")
+
+
+def combustion():
+    c = res("core")
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.05))
+    ax = axs[0]
+    f = np.array(c["f"])
+    m = np.array(c["measured"])
+    s = np.array(c["shape"])
+    ax.semilogx(f, m, "o", mfc="none", mec=C_TEST, ms=3.4, mew=0.8, ls="none", label="YF-102, 95 % speed")
+    ax.semilogx(f, s + (m - s).mean(), "-", color=C_MOD, lw=0.9, label="GE's spectrum, its level matched")
+    ax.set_xticks([50, 100, 200, 500, 1000], ["50", "100", "200", "500", "1000"])
+    ax.set_xticks([], minor=True)
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("third octave, dB")
+    ax.legend(loc="lower right")
+    tag(ax, "a")
+    ax = axs[1]
+    ax.plot(c["th"], c["di_test"], "o", mfc="none", mec=C_TEST, ms=3.4, mew=0.8, ls="none", label="YF-102")
+    ax.plot(c["th"], c["di"], "-", color=C_MOD, lw=0.9, label="GE's directivity")
+    ax.set_xlabel("angle from the inlet, deg")
+    ax.set_ylabel("directivity index, dB")
+    ax.legend(loc="lower center")
+    tag(ax, "b")
+    fig.tight_layout(w_pad=1.2)
+    save(fig, "combustion")
+
+
 def mv22():
     m = res("mv22")
     fig, axs = plt.subplots(1, 3, figsize=(W2, 2.05))
@@ -453,7 +540,7 @@ def ask21():
 
 
 ALL = dict(verify=verify, rotors=rotors, torsion=torsion, stand=stand, hart2_loads=hart2_loads, hart2_map=hart2_map, bvi=bvi, texture=texture, fountain=fountain,
-           outside=outside, engines=engines, cabin=cabin, wind=wind, mv22=mv22, ask21=ask21)
+           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21)
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

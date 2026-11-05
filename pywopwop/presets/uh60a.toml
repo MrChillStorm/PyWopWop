@@ -8,6 +8,7 @@ drag_area_m2 = 2.4          # about 26 ft^2
 download = 0.04
 cockpit = [3.8, -0.5, -1.65]
 hub_height_m = 3.6               # main rotor hub above the ground on the gear
+windscreen_m = 1.5               # the windscreen's centre from the nose (estimated)
 
 [[rotor]]
 name = "main"
@@ -106,13 +107,17 @@ property = "/engines/apu/n1-pct"
 # walls or the doors). Frequencies at 100 % rotor speed from the tooth counts (NASA TP-2698): the planetary (228-tooth
 # ring, 5 planets: sidebands at the planets' passing, 21.5 Hz) and its harmonics, the combining bevel (17 teeth at
 # 95.83 Hz), the tail take-off bevel (116 at 20.11 Hz), the input bevels (22 at 348.5 Hz). Levels at the pilot at 75 %
-# torque, a hover: the planetary's 100 dB from the cabin levels NASA's review of rotorcraft cabin noise gives military
-# helicopters of this weight (peak gear tones 98-110 dB), the others relative to it as a UH-60 cabin recording shows
-# them; their amplitude goes with the torque (the recording: about 12 dB from flat pitch to the hover).
+# torque, a hover: the planetary's so that the 1 kHz octave at 120 kt is the measured 91 dB (Mace et al. 1981, in USAARL
+# report 2000-19: a UH-60A, 120 kt, doors shut, calibrated), the others relative to it as a UH-60 cabin recording shows
+# them; their amplitude goes with the torque. The bands: what that spectrum holds at the pilot's seat beyond the rotors,
+# the engines, the wind and the tones, the drive's vibration through the airframe and the cabin's own systems, by the
+# measured octaves (at 120 kt about 50 % torque, carried to the 75 % these levels are at).
 [transmission]
 reference_torque_pct = 75.0
 # [Hz at 100 % rotor speed, dB re 20 uPa at the pilot, sideband spacing Hz]
-tones = [[980.0, 100.0, 21.5], [1960.0, 82.7, 21.5], [2940.0, 73.0, 21.5], [1629.0, 72.7, 95.8],
-         [2333.0, 63.4, 20.1], [7667.0, 45.8, 348.5]]
+tones = [[980.0, 92.0, 21.5], [1960.0, 74.7, 21.5], [2940.0, 65.0, 21.5], [1629.0, 64.7, 95.8],
+         [2333.0, 55.4, 20.1], [7667.0, 37.8, 348.5]]
+bands = [[200, 105.3], [250, 105.3], [315, 105.3], [400, 94.0], [500, 94.0], [630, 94.0], [800, 78.0], [1000, 78.0], [1250, 78.0],
+         [1600, 86.1], [2000, 86.1], [2500, 86.1], [3150, 83.4], [4000, 83.4], [5000, 83.4], [6300, 83.5], [8000, 83.5], [10000, 83.5]]
 rpm_property = "rotors/main/rpm"
 torque_properties = ["/engines/engine[0]/torque-pct", "/engines/engine[1]/torque-pct"]

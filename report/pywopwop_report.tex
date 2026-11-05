@@ -48,14 +48,14 @@ their cycle by the methods of NASA's ROTONET, a tiltrotor's wing from Sears' fun
 its sections' boundary layers. The solvers reproduce the output of NASA's BPM code within \NBpmDthree\,dB, Gutin's harmonics within \NGutin\,dB and an
 independent Formulation~1 within \NFoneFly\,\%. With nothing fitted to it, the full-scale XV-15 rotor's overall level on NASA's test stand is
 reproduced from 200 to 10\,500\,lb of thrust within \NStNearRms\,dB (rms) 2\,ft from its tip path, including the dip near 2000\,lb where the twisted blade's tip
-unloads, and within \NStFarRms\,dB at 76\,m; the steady torsion moment of the full-scale Bo~105 blade within \NBoTorsMax\,\%; the shape of the wall pressure measured in flight on the Tu-144LL within \NWiTuShape\,dB; and the MV-22's published levels
-in a hover within \NOuBehindMax\,dB. One constant, the tip vortex's effective core, is calibrated on the noise map of the HART~II rotor: its baseline case then has a
+unloads, and within \NStFarRms\,dB at 76\,m; the steady torsion moment of the full-scale Bo~105 blade within \NBoTorsMax\,\%; the shape of the wall pressure measured in flight on the Tu-144LL within \NWiTuShape\,dB; the MV-22's published levels
+in a hover within \NOuBehindMax\,dB; and the UH-60A's maximum level under its path in twelve sets of the FAA's flights, level and in approach, by \NFlMean\,dB on average and \NFlRms\,dB rms. One constant, the tip vortex's effective core, is calibrated on the noise map of the HART~II rotor: its baseline case then has a
 mean error of \NHtMapMean\,dB and a scatter of \NHtMapRms\,dB over the microphones' plane, with both of its lobes. In a recording made behind the pilots of an MV-22B in
 cruise, whose camera's gain and response are unknown, the model at equal loudness is within \NMvBand\,dB in every octave-wide band from 50\,Hz to
 12\,kHz, though several of its parameters were measured from that recording. Building this programme of tests found a dimensional error
 in the blades' pitching moment, a missing propeller moment, a trim that failed in silence, a calibration aimed at the wrong quantity and a published check of a cabin's doors that
 turned out to be a measuring artefact; all are corrected or withdrawn here, and are listed. Deficiencies are quantified: the UH-60A's rotors' power at high speed is \NUhLevelAHi\,\% from its flight test; the
-Bo~105's collective stands \NBoThMin--\NBoThMax$^\circ$ under NASA's; the one calibrated cockpit level available, the Army's \NCkTest\,dBA in a UH-60A, stands \NCkLo--\NCkHi\,dB over the model's; and the cabins' trim, absorption and the tiltrotor's paths remain estimates fitted to a single flight.
+Bo~105's collective stands \NBoThMin--\NBoThMax$^\circ$ under NASA's; the UH-60A's level stays flat with speed where the FAA's rises \NFlTestRise\,dB, stands \NFlAppMean\,dB over in approaches, and falls \NFlSideLo{} to \NFlSideHi\,dB short beside the flight path; the UH-60A's cockpit, its drive measured from one calibrated spectrum, runs \NCkNasaMean\,dB over NASA's levels, though within \NCkNasaSd\,dB of their trend with speed, and the measurements themselves differ by 8\,dB; and the MV-22B's cabin paths remain estimates fitted to a single flight.
 \end{abstract}
 \vspace{6pt}
 \end{@twocolumnfalse}
@@ -93,7 +93,11 @@ USAAEFA 77-17, 83-24~\cite{a7717,a8324} & UH-60A hover and level-flight power \\
 Lim et al.~\cite{lim} & the HART~II rotor, its trim, measured airloads, blade motion and noise map \\
 Rutledge et al.~\cite{rcg}; George~\cite{george}; NASA SP-2000-4517~\cite{ma} & XV-15 hovering over ground boards, the fountain's turbulence, the fences' effect, the noise behind the aircraft \\
 Japan's Ministry of Defense~\cite{mod} & MV-22 outside levels, airplane mode and hover \\
-National Academies~\cite{nas} & UH-60A cockpit level from the US Army \\
+FAA-EE-81-16~\cite{faa} & UH-60A flyovers and approaches, calibrated \\
+Mace et al., in~\cite{usaarl}; NASA TM-84664~\cite{tm84664}; National Academies~\cite{nas} & UH-60A cockpit: octave bands at 120\,kt, levels against speed, a US Army level \\
+NASA CR-2377~\cite{healy} & a glider's flyover spectra, calibrated, and an empirical law \\
+NASA TM-73748, TM-88971~\cite{karchmer,krejsa}; AIAA 2025-3896~\cite{nesbitt} & a YF-102's combustion noise: power, directivity, spectrum; GE's method against modern engines in flight \\
+NACA 1329~\cite{naca} & a jet's sound power and spectral peak \\
 NASA TM-105805~\cite{ge} & T700 steady states from GE's simulation \\
 NASA CR-2005-213938~\cite{tu144} & wall pressure spectra in flight, Tu-144LL \\
 Video recordings & UH-60 starts and flight, MV-22B in cruise, ASK~21 aerobatics (Section~\ref{sec:ref}) \\
@@ -109,6 +113,7 @@ Table~\ref{tab:sources} lists the sources against which the model is compared; t
 \emph{(v)} The published MV-22 table~\cite{mod} gives maximum levels without saying the hover's height, the listener's direction or the meter's response, nor the ground. The airplane-mode levels are directly below at 220\,kt.
 \emph{(vi)} USAAEFA's power is both engines' output on the main rotor's disc; the model's is both rotors', without the transmission and accessories, which take a few per cent.
 \emph{(vii)} All the recordings come from public videos: camera microphones with automatic gain and an unknown response, some with music. Absolute levels cannot be read from them. Only ratios within a moment are used: tones over the broadband beside them, the sound's pulsing, spectral shapes at equal loudness (ITU-R BS.1770~\cite{bs1770}, never A-weighting, which is blind to the lows a listener hears), and how these change. Airspeed, load factor and sideslip in the gliders' videos were read off the instruments in the picture.
+\emph{(viii)} The calibrated measurements disagree among themselves. At 120\,kt the UH-60A's cockpit is 101\,dBA at the pilot's seat and 97 at the copilot's in Mace's survey~\cite{usaarl}, and 93 in NASA's, its two microphones by the pilots' heads~\cite{tm84664}; the Army quotes 106 in flight, the condition not stated~\cite{nas}. The FAA's report~\cite{faa} is a scan, read by optical character recognition; its levels are averages of several runs and it prints no spectra. Speeds, torques and rates of descent come from photographs of the cockpit during each run: a snapshot, so three of the June 22 approaches read $-1900$\,ft/min with the others' levels, and those are taken at the others' rate. The Prue-2 glider~\cite{healy}, of the 6670\,N class, is not an ASK~21, which flies here at about 5300\,N; its bands are the maxima held during each pass, read from a figure, normalised to 152\,m, and close to the ambient's at the lower speeds, from which they had to be subtracted.
 
 % =====================================================================================================================
 \section{The model}\label{sec:model}
@@ -175,7 +180,7 @@ What is compared with what deserves stating, because it decides what a result me
 \caption{What is not simply published.}\label{tab:params}
 \begin{tabularx}{\columnwidth}{@{}>{\raggedright\arraybackslash}p{2.9cm}X@{}}
 \toprule
-Calibrated & vortex core 0.8 chord (HART~II's noise); roll-up 0.7; the MV-22B's section constants (XV-15 hover test) \\
+Calibrated & vortex core 0.8 chord (HART~II's noise); roll-up 0.7; the MV-22B's section constants (XV-15 hover test); UH-60A drive tones and bands (Mace's spectrum) \\
 \addlinespace
 Measured from recordings & T700 blade counts 20 and 22; AE~1107C blade count 32; APU signature; relative gearbox tones; MV-22B: drive's roar and meshes, wall masses, structure's mobility, rotor index 26.4$^\circ$, modal draw, load ripple, 18\,dB forward path loss \\
 \addlinespace
@@ -245,6 +250,24 @@ Calibrated on the noise itself, the core is \NHtCore{} chord. Fig.~\ref{fig:hart
 \end{figure*}
 The rest of the wake's behaviour needs no calibration: where the slap comes and goes. HART~II's baseline was set where the shaft-angle sweep found the maximum noise, 5.3$^\circ$; the model's maximum is at \NBvAlphaPeak$^\circ$ (Fig.~\ref{fig:bvi}a). In full-scale descents the slap peaks at \NBvUhFpm\,ft/min for the UH-60A at 65\,kt and \NBvHuFpm\,ft/min for the UH-1H at 70\,kt, with the wake in the disc's plane, and falls away in steeper descents as the wake rises through the disc (Fig.~\ref{fig:bvi}b).
 
+\subsection{Absolute level in flight: the UH-60A}\label{sec:flight}
+\begin{table}[t]
+\centering\small
+\caption{The UH-60A overhead: the FAA's measured maximum and the model's, dBA.}\label{tab:flight}
+\Tab{flight}
+\end{table}
+\begin{figure*}[t]
+\centering\includegraphics[width=\textwidth]{flight}
+\caption{Absolute levels in flight, nothing fitted: (a) the UH-60A in the FAA's flyovers and approaches; (b) the ASK~21 model, lines, against the Prue-2 glider's measured bands, circles, at 59, 82 and 100\,kt.}\label{fig:flight}
+\end{figure*}
+The FAA flew a UH-60A over calibrated microphones in June 1980~\cite{faa}. Its appendices give every run's levels and a photograph's reading of the cockpit, so speeds and rates of descent need not be assumed. Table~\ref{tab:flight} and Fig.~\ref{fig:flight}a set the model against twelve sets of runs: the rotors and both engines at eight angles along the path, a microphone 1.2\,m over grass, the largest level taken. With nothing fitted the mean error is \NFlMean\,dB and the rms \NFlRms\,dB; the eight level flights have a mean of \NFlLevelMean\,dB and a scatter of \NFlLevelSd. Much the same flyover on two days differs by 1.9\,dB, which is what can be asked of it. The level follows the height from 91 to 305\,m, and the ground is right: a flush microphone reads \NFlFlushTest\,dB against the model's \NFlFlushMod, one 10\,m up \NFlTallTest{} against \NFlTallMod.
+
+Speed is where it fails. From 100 to 152\,kt the test rises \NFlTestRise\,dB and the model \NFlModRise, from \NFlSlowDiff\,dB at 115\,kt to \NFlFastDiff\,dB at 152. Power isn't the reason: against the torque the crew read, the model's is \NFlTorqueLo{} to \NFlTorqueHi\,\% at every speed and rises as the test's does. The test's overall level rises \NFlOaRise\,dB, more than its A-weighted one, so what grows with speed is low in pitch, and the model hasn't got it.
+
+Four approaches down the 6$^\circ$ path, at 56 to 76\,kt, read \NFlAppTestLo{} to \NFlAppTestHi\,dBA and the model \NFlAppLo{} to \NFlAppHi, \NFlAppMin{} to \NFlAppMax\,dB over: high, but evenly, with the torque at 20 to 25\,\% where the crews read 17 to 35. The slap alone comes to \NFlAppSlap\,dBA, against \NFlLevelSlap{} at most in level flight, and the rest to \NFlAppRest, so not all of the excess can be the slap's, and a maximum level does not separate them. A vortex core set on a 40\,\% scale rotor in a wind tunnel has at least not put a full-scale aircraft's slap far out.
+
+Beside the path the model is plainly wrong. On one day's flyovers at 150\,kt and 152\,m, microphones 150 and 164\,m to the side read \NFlNearTest\,dB from the one under the path, and one 284\,m out \NFlFarTest; the model gives \NFlNearMod{} and \NFlFarMod, \NFlSideLo{} to \NFlSideHi\,dB short. Its main rotor's broadband leads everywhere and simply fades with distance, where the real sound is stronger sideways than downward. The overall level stands \NFlGapCentre\,dB over the A-weighted one under the path and \NFlGapSide{} beside it, so what is missing there is higher in pitch than what is missing with speed; the tail rotor is the likely place, but with no spectra that is a guess, and nothing has been fitted to it.
+
 \subsection{Texture}\label{sec:texture}
 \begin{table}[t]
 \centering\small
@@ -286,16 +309,26 @@ Tones are where recordings are at their best, since frequency survives any camer
 
 Outside, 50\,m to the right, one T700 makes \NEnIdle\,dBA at idle, \NEnFly{} at 87.5\,\% and \NEnFull{} at full power, and the APU \NEnApu, against 85\,dBA contours past 100\,ft and levels of 105\,dB or more measured round a whole UH-60 on the ground~\cite{jones}. GE's and Heidmann's methods are empirical and good to about 5\,dB.
 
+\begin{figure*}[t]
+\centering\includegraphics[width=\textwidth]{combustion}
+\caption{GE's combustion noise against a YF-102, a turbofan on a helicopter's core: (a) the spectrum's shape against the core noise at 95\,\% speed, 120$^\circ$ from the inlet~\cite{krejsa}; (b) the directivity against the coherent noise from 30 to 60\,\% speed~\cite{karchmer}.}\label{fig:combustion}
+\end{figure*}
+Combustion noise can be tested on its own, because NASA separated it on a YF-102, a turbofan built on the core of a helicopter's T55. GE's published power for that engine~\cite{karchmer}, by the method used here, stands \NCoDirectLo{} to \NCoDirectHi\,dB over its far field below 200\,Hz, which bounds it from above, and \NCoCohLo{} to \NCoCohHi\,dB over the part coherent with one combustor probe, which Krejsa shows reads 3 to 10\,dB low~\cite{krejsa}: about right, on the high side. Those are GE's own figures, since these reports don't give the engine's cycle; the port rests on ANOPP's equations. Its spectrum's shape follows the core noise found by Krejsa's three signals within \NCoShape\,dB rms, peaking at \NCoPeak\,Hz against the method's 400, and its directivity follows the measured within \NCoDi\,dB rms, \NCoDiMax\,dB at most (Fig.~\ref{fig:combustion}). The single probe had put that peak near 125\,Hz at lower power, which, taken alone, would have argued for moving the spectrum two octaves down; the better measurement doesn't. Modern engines are another matter: flight tests put the method \NCoModLo{} to \NCoModHi\,dB over a GEnx-1B and a GE90~\cite{nesbitt}, whose pressure ratios and combustors are far from a T700's. The doubt costs little here, since the power turbine leads: 10\,dB off a T700's combustion noise takes \NCoCutLo{} to \NCoCutHi\,dB off the engine 50\,m away. The jet's power by SAE's method stands \NCoJetLo{} to \NCoJetHi\,dB over NACA's constant for cold jets and engines alike~\cite{naca}, and the spectrum's peak, which stood at a Strouhal number of 0.5, now stands at \NCoJetSt, as NACA measured it, 0.3. A turboshaft's slow jet lies some 20\,dB under its combustion noise, so neither is heard.
+
 \subsection{Cabins and wind}\label{sec:cabin}
 \begin{figure}[t]
 \centering\includegraphics[width=\columnwidth]{wind}
 \caption{The boundary layer's wall pressure in flight~\cite{tu144}.}\label{fig:wind}
 \end{figure}
 \begin{figure*}[t]
+\centering\includegraphics[width=\textwidth]{cockpit}
+\caption{The UH-60A at the pilots: (a) octave bands at 120\,kt, the model calibrated on the pilot's above 125\,Hz; (b) level against airspeed, NASA's data independent of that calibration.}\label{fig:cockpit}
+\end{figure*}
+\begin{figure*}[t]
 \centering\includegraphics[width=\textwidth]{cabin}
 \caption{(a) Transmission loss of the walls and windows; (b) what reaches the listener of what is outside.}\label{fig:cabin}
 \end{figure*}
-Fig.~\ref{fig:cabin} shows the walls: the MV-22B's double wall far tighter than one wall above its resonance at \NCaResonance\,Hz, and the windows' coincidence dips. Opening every door and window of the UH-60A adds \NCaDoor\,dB to the path at 10\,kHz, a figure with no measurement behind it now (Section~\ref{sec:review}). One calibrated level exists: the US Army's \NCkTest\,dBA at the pilot's and copilot's seats of a UH-60A in flight, the condition not stated~\cite{nas}. The model gives \NCkHover\,dBA in the hover and \NCkCruise{} at 120\,kt, \NCkLo--\NCkHi\,dB under it: the gearbox \NCkGear\,dBA in the hover, whose level comes from NASA's review~\cite{review}, so that this is a check of consistency, the rotors \NCkRotHover{} to \NCkRotCruise{} and the engines \NCkEng. The wall pressure lies at \NWiLo--\NWiHi\,$q$ over the flight range, against Bies's compilation of flight and tunnel data, about 0.0066\,$q$~\cite{bies}. In flight the Tu-144LL measured it in absolute terms~\cite{tu144}: at Mach 0.74 and 16\,400\,ft, mid-fuselage, the model's spectrum keeps the measured shape within \NWiTuShape\,dB rms from 100\,Hz to 10\,kHz, closer than the five established models that report tried, and is \NWiTuMean\,dB in level (Fig.~\ref{fig:wind}), at \NWiTuQ\,$q$. That run's Reynolds number, $3\times10^8$, is far past what the 1/7-power skin friction used until then can reach, which stood 4.8\,dB under; White's law takes half of that. The rest isn't explained, the sensors themselves scattering by about 1.5\,dB and the model leaving out compressibility. The wind's altitude scaling holds the spectrum from 125\,Hz to 2\,kHz within \NWiAltA\,dB to 12\,km and \NWiAltB\,dB at 21\,km, and is \NWiAltTop\,dB out at 16\,kHz there.
+Fig.~\ref{fig:cabin} shows the walls: the MV-22B's double wall far tighter than one wall above its resonance at \NCaResonance\,Hz, and the windows' coincidence dips. Opening every door and window of the UH-60A adds \NCaDoor\,dB to the path at 10\,kHz, a figure with no measurement behind it now (Section~\ref{sec:review}). That is the one part of the UH-60A's cabin left without a measurement, for its cockpit now has several (Fig.~\ref{fig:cockpit}). Mace's survey gives the octave bands at the pilot's seat at 120\,kt, doors shut~\cite{usaarl}. Against it the first model was right in total for the wrong reasons: \NCkOldCruise\,dBA, but its gearbox, set from NASA's review~\cite{review}, stood \NCkOldTone\,dB over the 1\,kHz octave and the other bands from 250\,Hz to 8\,kHz \NCkOldUnderLo{} to \NCkOldUnderHi\,dB under, with no wind in the preset and none of the drive's vibration through the airframe. With the wind added, the tones taken down and what remains measured as the drive's bands, as for the MV-22B, the model is within \NCkBandMax\,dB of that spectrum from 125\,Hz up, which is a calibration, and \NCkCruise\,dBA against \NCkPilot. Below 100\,Hz it stands \NCkLowLo{} to \NCkLowHi\,dB over: this fuselage has no wall model, so the rotors' harmonics pass the cabin filter whole. NASA's levels~\cite{tm84664}, independent of that calibration, show what it is worth: from the hover to 165\,kt the model runs \NCkNasaMean\,dB over them but follows their trend with speed within \NCkNasaSd\,dB (the drive with the torque, the wind with the speed). The model's hover, \NCkHover\,dBA, lies between NASA's \NCkNasaHover{} and the Army's \NCkArmy~\cite{nas}. The wall pressure lies at \NWiLo--\NWiHi\,$q$ over the flight range, against Bies's compilation of flight and tunnel data, about 0.0066\,$q$~\cite{bies}. In flight the Tu-144LL measured it in absolute terms~\cite{tu144}: at Mach 0.74 and 16\,400\,ft, mid-fuselage, the model's spectrum keeps the measured shape within \NWiTuShape\,dB rms from 100\,Hz to 10\,kHz, closer than the five established models that report tried, and is \NWiTuMean\,dB in level (Fig.~\ref{fig:wind}), at \NWiTuQ\,$q$. That run's Reynolds number, $3\times10^8$, is far past what the 1/7-power skin friction used until then can reach, which stood 4.8\,dB under; White's law takes half of that. The rest isn't explained, the sensors themselves scattering by about 1.5\,dB and the model leaving out compressibility. The wind's altitude scaling holds the spectrum from 125\,Hz to 2\,kHz within \NWiAltA\,dB to 12\,km and \NWiAltB\,dB at 21\,km, and is \NWiAltTop\,dB out at 16\,kHz there.
 
 \subsection{The MV-22B's cockpit}\label{sec:mv22}
 \begin{figure*}[t]
@@ -321,7 +354,7 @@ This comparison took the most work, and the least of it is prediction. Heard at 
 \centering\includegraphics[width=\textwidth]{ask21}
 \caption{ASK~21 cockpits: (a) spectra by airspeed, solid the recording and dashed the model, each set to its 1--4\,kHz mean; (b) a second glider; (c) a barrelled roll, the 1.6--6.3\,kHz band, in the stretches where the ASI reads.}\label{fig:ask21}
 \end{figure*}
-The computed stall speed at 540\,kg is \NAsStall\,kt, the flight manual's 35. In the cockpit the canopy's boundary layer dominates, \NAsLevelLo\,dBA at 50\,kt and \NAsLevelHi{} at 120\,kt. In aerobatics recorded from the front seat, airspeed read off the needle frame by frame, the shape from 315\,Hz to 6.3\,kHz is within \NAsShapeLo--\NAsShapeHi\,dB rms at \NAsSpeedLo{} to \NAsSpeedHi\,kt (Fig.~\ref{fig:ask21}a), and from 400\,Hz to 8\,kHz, without the bands a whistle of this glider's own crosses, the sound's power grows as the airspeed to the power \NAsExpRec, the model's \NAsExpMod; from 3 to 8\,kHz it grows \NAsHighRec\,dB a decade against \NAsHighMod. A second glider, \NAsSecondSec\,s free of the music's cymbals, keeps the shape within \NAsSecond\,dB from 400\,Hz to 4\,kHz. Both fall faster than the model above 5\,kHz and have more below 250\,Hz; how much of that their cameras make can't be told. In a barrelled roll with the load factor read off the g-meter, the band swings \NAsRollRec\,dB against the model's \NAsRollMod, the same way, and in the pull-up grows \NAsPerGRec\,dB per $g$ against \NAsPerGMod. Leaks through the canopy's seals, driven by the lift and the slip, would do this. So might the camera, and one recording can't tell them apart.
+The computed stall speed at 540\,kg is \NAsStall\,kt, the flight manual's 35. Outside, NASA's flyovers of a Prue-2 glider~\cite{healy} give the first absolute test. Healy smoothed their spectra, leaving out the tones and the ambient below about 300\,Hz. At the same height and speeds the ASK~21 model has their shape within \NPrShape\,dB rms from 400\,Hz to 6.3\,kHz at each speed, and stands \NPrLo{} to \NPrHi\,dB under them (Fig.~\ref{fig:flight}b). Its overall level goes as $V^{\NPrExpModel}$ and theirs as $V^{\NPrExpTest}$. Healy's law, $M^6S/AR^4$ fitted to all his aircraft, puts an ASK~21 within \NPrLawMean\,dB of the Prue-2's level, so wing size and aspect ratio do not excuse the difference, and the model stands \NPrLawModel\,dB from that law. Whether the rest is the type's finish or a source the model lacks cannot be told from another glider. In the cockpit the canopy's boundary layer dominates, \NAsLevelLo\,dBA at 50\,kt and \NAsLevelHi{} at 120\,kt. In aerobatics recorded from the front seat, airspeed read off the needle frame by frame, the shape from 315\,Hz to 6.3\,kHz is within \NAsShapeLo--\NAsShapeHi\,dB rms at \NAsSpeedLo{} to \NAsSpeedHi\,kt (Fig.~\ref{fig:ask21}a), and from 400\,Hz to 8\,kHz, without the bands a whistle of this glider's own crosses, the sound's power grows as the airspeed to the power \NAsExpRec, the model's \NAsExpMod; from 3 to 8\,kHz it grows \NAsHighRec\,dB a decade against \NAsHighMod. A second glider, \NAsSecondSec\,s free of the music's cymbals, keeps the shape within \NAsSecond\,dB from 400\,Hz to 4\,kHz. Both fall faster than the model above 5\,kHz and have more below 250\,Hz; how much of that their cameras make can't be told. In a barrelled roll with the load factor read off the g-meter, the band swings \NAsRollRec\,dB against the model's \NAsRollMod, the same way, and in the pull-up grows \NAsPerGRec\,dB per $g$ against \NAsPerGMod. Leaks through the canopy's seals, driven by the lift and the slip, would do this. So might the camera, and one recording can't tell them apart.
 
 \subsection{Cost}\label{sec:cost}
 On an Apple M1 (8 cores), busy with other work during this run (a load average of \NBeLoad, which about doubles these times), the source-time, closed-form kernel takes \NBeSrc\,ms where the classic retarded-time iteration, as the original WOPWOP does it, with the same compiler, takes \NBeRet\,ms, \NBeRatio{} times as long for the same answer. A UH-60A descent's trim, elastic response and wake take \NBeTrim\,s, Formulation 1A at one listener \NBeFa\,s (\NBeRate{} million source evaluations a second), and a whole 15\,s loop from nothing \NBeLoop\,s. PSU-WOPWOP itself was not timed: its binary is distributed on request, so no ratio is claimed.
@@ -333,7 +366,7 @@ On an Apple M1 (8 cores), busy with other work during this run (a load average o
 \caption{What this report's corrections changed.}\label{tab:before}
 \resizebox{\columnwidth}{!}{\Tab{before}}
 \end{table}
-The changes the comparisons forced are listed because each removed a physical, numerical or measuring error rather than tuning a coefficient. The first seven were found by this report's programme (Table~\ref{tab:before}).
+The changes the comparisons forced are listed because each removed a physical, numerical or measuring error rather than tuning a coefficient. The first eight were found by this report's programme (Table~\ref{tab:before}).
 \begin{enumerate}
 \item \emph{The blades' pitching moment.} The section's moment about the elastic axis was the dynamic pressure, which held one chord already, times the chord squared: one chord too many, in metres. So the Bo~105's aerodynamic moment was 27\,\% of its value and the centrifugal term won: the blade twisted nose-up with thrust by \NBoTwistBefore$^\circ$, where NASA measured nose-down moments. Every elastic rotor had it, and every check passed, since the trim absorbs a twist in the collective. Comparing the moment with its three parts' sum found it, within 0.01$^\circ$.
 \item \emph{The propeller moment} on the set pitch was missing from the torsion load.
@@ -341,6 +374,7 @@ The changes the comparisons forced are listed because each removed a physical, n
 \item \emph{The vortex core's target.} Section~\ref{sec:hart}: it had been aimed at a mean taken for a swing, and on other rotors than HART~II's.
 \item \emph{A door check that wasn't.} Closing a UH-60's cabin doors in a recording was said to take 18.3\,dB off the whine at 10\,kHz, within a decibel of the walls' model. The figure came from one line in a $\pm 15$\,Hz window. In fact the two engines' lines drift from \NDoFromA{} to \NDoToA\,kHz through that moment at constant level (Fig.~\ref{fig:engines}c): the band's power changes \NDoBand\,dB, the window's \NDoNarrow. The check is withdrawn; nothing in the recording shows a door.
 \item \emph{The skin friction.} The wall pressure's 1/7-power law falls short past $Re_x=10^7$. The Tu-144LL's flight spectra, whose shape the model had right, stood 4.8\,dB over it; White's law takes half of that, and 1 to 2\,dB more of wind on an MV-22B.
+\item \emph{The UH-60A's cockpit, right for the wrong reasons.} Its gearbox tone, set from a review of such cabins, was \NCkOldTone\,dB too strong, and the cockpit had no wind and no broadband drive; the total was close only because these cancelled. A calibrated spectrum showed it (Section~\ref{sec:cabin}).
 \item \emph{The HART~II map, read upside down} at first by this report's author, which correlated at 0.25 and was corrected from the paper's text (Section~\ref{sec:ref}), not from that correlation.
 \item \emph{Perfect periodicity.} The first loops' passages correlated at 0.99 against the recordings' 0.2--0.6, with tones 12 to 17\,dB too strong. Hence the revolutions of their own and the blade-wake noise.
 \item \emph{Sea-level air in a cruise at 10\,000\,ft} made every rotor pressure 2.6\,dB too strong, and the near-ground turbulence an inflow rumble as strong as the harmonics.
@@ -382,8 +416,21 @@ MV-22 hover table (P, geometry unknown) & \pok \\
 MV-22 airplane mode below (P) & \ok \\
 T700 cycle (P) & \ok \\
 Turbine tones' frequencies (M) & \ok \\
+Combustion noise: shape, directivity (P) & \ok \\
+Combustion noise: level (GE's figures) & \pok \\
 Gearbox tone against torque (P) & \nok \\
-UH-60A cockpit level (gearbox from a review) & \pok \\
+UH-60A under its path, against height (P) & \ok \\
+UH-60A under its path, against speed (P) & \nok \\
+UH-60A in approach (core from HART~II) & \pok \\
+UH-60A beside its path (P) & \nok \\
+UH-60A torque in flight and approach (P) & \pok \\
+Ground and microphone height (P) & \ok \\
+UH-60A cockpit spectrum over 125\,Hz (M) & \ok \\
+UH-60A cockpit under 100\,Hz (P) & \nok \\
+UH-60A cockpit level, trend with speed (P) & \ok \\
+UH-60A cockpit level against NASA's (M) & \pok \\
+A glider's spectrum outside, another type (P) & \ok \\
+A glider's level outside, another type (P) & \pok \\
 Cabin doors & not tested \\
 Whine chopped by the proprotor & not modelled \\
 MV-22B cockpit shape and statistics (M) & \ok \\
@@ -393,11 +440,11 @@ ASK~21 hiss against load factor (P) & \nok \\
 \bottomrule
 \end{tabularx}
 \end{table}
-Table~\ref{tab:score} summarises. The core of the program, from a rotor's published data to the pressure at a microphone, is now tested in absolute decibels, and it holds: on a full-scale rotor with nothing fitted, near and far, and on the elastic blade's moments. Blade--vortex interaction needs one calibrated constant and then reproduces the level, the lobes and the trends of the one test that measured them all. These are the program's strongest results, and they are also its newest: none of them existed before this report, and two of the faults they found had been passing every check for days.
+Table~\ref{tab:score} summarises. The core of the program, from a rotor's published data to the pressure at a microphone, is now tested in absolute decibels, and it holds: on a full-scale rotor with nothing fitted, near and far, and on the elastic blade's moments. Blade--vortex interaction needs one calibrated constant and then reproduces the level, the lobes and the trends of the one test that measured them all. And under the flight path it holds in flight: a real UH-60A's level from 91 to 305\,m comes out with a scatter of \NFlLevelSd\,dB with no fitting, and a glider of another type keeps its spectrum's shape, \NPrLo{} to \NPrHi\,dB low. These are the program's strongest results, and they are also its newest: none of them existed before this report, and two of the faults they found had been passing every check for days.
 
-Its weakest results are those that sound the most convincing. The MV-22B's cockpit agrees with its recording because many of its parameters were measured from that recording, by a camera of unknown response in one flight condition. The one calibrated cockpit level shows the UH-60A's \NCkLo--\NCkHi\,dB low, and the MV-22B's hover cockpit is unverified against anything. The cabins' skins and absorption are estimates. The model's power at high speed runs short. Linear acoustics stop near Mach 0.9 at the advancing tip; the wake is prescribed, with no lag motion and uniform blades; there is no fuselage scattering and no main rotor wake on the tail rotor; the conversion between a tiltrotor's modes is a cross-fade. HART~II's rotor is a Mach-scaled Bo~105, so the core's transfer to a UH-60A or a V-22 rotor rests on its being a property of the method more than of the rotor.
+Its weakest results are those that sound the most convincing. The MV-22B's cockpit agrees with its recording because many of its parameters were measured from that recording, by a camera of unknown response in one flight condition. The UH-60A's cockpit is calibrated on one survey that others differ from by 8\,dB, and the MV-22B's hover cockpit is unverified against anything. Worst for a simulator, whose listeners stand anywhere, the UH-60A is \NFlSideLo{} to \NFlSideHi\,dB too quiet beside its path and does not grow with speed; both point at sources not yet in the model. The cabins' skins and absorption are estimates. The model's power at high speed runs short. Linear acoustics stop near Mach 0.9 at the advancing tip; the wake is prescribed, with no lag motion and uniform blades; there is no fuselage scattering and no main rotor wake on the tail rotor; the conversion between a tiltrotor's modes is a cross-fade. HART~II's rotor is a Mach-scaled Bo~105, so the core's transfer to a UH-60A or a V-22 rotor rests on its being a property of the method more than of the rotor.
 
-What would change this most is cheap to state: a calibrated cockpit spectrum of any of these aircraft, such as the UH-60A's octave bands in USAARL's report 2000-19, the FAA's flyovers of the UH-60A in FAA-EE-81-16, a recording of a door actually closing, and flight-test noise of a rotor in descent. The first two exist; their servers refused this programme's download, and they are left for its next issue.
+What would change this most is cheap to state: a calibrated cockpit recording of an MV-22B, one of a door actually closing, and any calibrated spectrum of a UH-60A in level flight, under its path and beside it, which the FAA's report does not print and which would show what the model lacks.
 
 % =====================================================================================================================
 \section{Conclusions}\label{sec:concl}
@@ -405,6 +452,8 @@ What would change this most is cheap to state: a calibrated cockpit spectrum of 
 \item One program takes a rotor's published geometry to seamless, alias-free loops for a flight simulator: trim, elastic blades, a prescribed wake, Formulation 1A, BPM and Amiet, cabin paths, engines from their cycles, a glider's airframe, and a FlightGear section.
 \item Its solvers agree with closed forms and NASA's code to the tables' precision.
 \item With nothing fitted, a full-scale XV-15 rotor's overall level is reproduced within \NStNearRms\,dB rms over its whole thrust range 2\,ft from its tip path, the dip where the twisted blade's tip unloads included, and within \NStFarRms\,dB at 76\,m; a Bo~105 blade's torsion moment within \NBoTorsMax\,\%.
+\item In real flight, with nothing fitted, a UH-60A's level under its path is reproduced by \NFlMean\,dB on average and \NFlRms\,dB rms over twelve sets of the FAA's flights, approaches \NFlAppMean\,dB high; but it does not rise with speed as the test's does, and beside the path it falls \NFlSideLo{} to \NFlSideHi\,dB short. A glider's spectrum keeps its shape within \NPrShape\,dB rms, \NPrLo{} to \NPrHi\,dB low.
+\item GE's combustion noise, used for the engines, keeps its shape and directivity on a helicopter-sized core within \NCoShape{} and \NCoDi\,dB rms; a better measurement, at higher power, kept this report from moving its peak two octaves on the evidence of a worse one.
 \item With one effective vortex core calibrated on HART~II's noise, that test's map has a scatter of \NHtMapRms\,dB with both of its lobes, its maximum near the shaft angle the test found.
 \item A tiltrotor's fountain gives the noise behind the aircraft that NASA found in 1981, in kind and in its added level.
 \item Recordings of unknown gain give frequencies and shapes reliably and levels not at all; used so, they gave the T700's blade counts, the MV-22B's drive and the ASK~21's canopy.
@@ -431,6 +480,14 @@ What would change this most is cheap to state: a calibrated cockpit spectrum of 
 \bibitem{mod} Japan Ministry of Defense, MV-22 Osprey pamphlet, 2012, pp.\ 12--13.
 \bibitem{ge} A.\ Duyar, Z.\ Gu and J.\,S.\ Litt, \emph{A Simplified Dynamic Turboshaft Engine Model}, NASA TM-105805, 1992.
 \bibitem{bs1770} ITU-R, \emph{Algorithms to Measure Audio Programme Loudness and True-Peak Audio Level}, Recommendation BS.1770-4, 2015.
+\bibitem{faa} J.\,S.\ Newman, E.\,J.\ Rickley and D.\,W.\ Ford, \emph{Helicopter Noise Definition Report: UH-60A, S-76, A-109, 206-L}, FAA-EE-81-16, 1981.
+\bibitem{usaarl} E.\ Gordon and W.\,A.\ Ahroon, \emph{Noise Levels in the USAARL NUH-60 (Black Hawk) Aeromed Flight Simulator}, USAARL Report 2000-19, 2000, table 1, after Mace et al., 1981.
+\bibitem{tm84664} S.\,A.\ Clevenson, J.\,D.\ Leatherwood and D.\,D.\ Hollenbaugh, \emph{Interior Noise and Vibration Measurements on Operational Military Helicopters and Comparisons With Various Ride Quality Criteria}, NASA TM-84664, 1983.
+\bibitem{healy} G.\,J.\ Healy, \emph{Measurement and Analysis of Aircraft Far-Field Aerodynamic Noise}, NASA CR-2377, 1974.
+\bibitem{karchmer} A.\,M.\ Karchmer, M.\ Reshotko and F.\,J.\ Montegani, \emph{Measurement of Far Field Combustion Noise from a Turbofan Engine Using Coherence Functions}, NASA TM-73748, 1977.
+\bibitem{krejsa} E.\,A.\ Krejsa, \emph{Combustion Noise from Gas Turbine Aircraft Engines: Measurement of Far-Field Levels}, NASA TM-88971, 1987.
+\bibitem{nesbitt} E.\,H.\ Nesbitt, I.\,A.\ Clark, Y.\ Guo and R.\,H.\ Thomas, \emph{Far Field Combustor Noise from Flight Test}, AIAA 2025-3896, 2025 (presentation).
+\bibitem{naca} E.\,E.\ Callaghan and W.\,D.\ Coles, \emph{Far Noise Field of Air Jets and Jet Engines}, NACA Report 1329, 1957.
 \bibitem{nas} L.\,E.\ Humes, L.\,M.\ Joellenbeck and J.\,S.\ Durch (eds.), \emph{Noise and Military Service: Implications for Hearing Loss and Tinnitus}, National Academies Press, 2006, table 3-1.
 \bibitem{tr} Boeing Vertol Company, \emph{Validation of Rotorcraft Flight Simulation Program through Correlation with Flight Data for Soft-in-Plane Hingeless Rotors}, USAAMRDL TR 75-50, 1976.
 \bibitem{gh} Sikorsky Aircraft, \emph{UH-60A Black Hawk Engineering Simulation Program, vol.~I: Mathematical Model}, NASA CR-166309, 1981.

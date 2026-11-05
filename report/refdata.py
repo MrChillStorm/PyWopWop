@@ -83,6 +83,56 @@ UH60_LEVEL = {0.12: {65: 33.78, 80: 45.50}, 0.14: {65: 32.89, 80: 42.79}, 0.16: 
 TU144 = dict(mach=0.74, alt_m=16400 * 0.3048, x_m=30.0, f=[100, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 4000, 5000, 8000, 10000],
              level=[98.3, 98.0, 98.6, 98.8, 98.3, 97.8, 96.8, 95.8, 94.2, 93.0, 92.0, 90.6, 90.0])
 
+# calibrated cockpit measurements of the UH-60A. Mace et al. 1981, in USAARL report 2000-19 table 1 (Gordon and Ahroon, 2000): 120 kt, doors shut,
+# octave bands dB and dBA; the calibration of the gearbox and the drive's bands
+UH60_OCTAVES = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000]
+UH60_PILOT = dict(bands=[108, 100, 102, 107, 96, 91, 88, 85, 85], dba=101.0)
+UH60_COPILOT = dict(bands=[112, 101, 101, 100, 94, 89, 88, 84, 83], dba=97.0)
+# NASA TM-84664 (Clevenson, Leatherwood and Hollenbaugh, 1983) table V, aircraft H-5, microphones by the pilots' heads, pistonphone calibrated:
+# independent of that calibration. kt: dBA (OGE hover at 0; 145 kt the cruise)
+UH60_NASA_DBA = {0: 97.0, 60: 94.0, 80: 93.0, 100: 94.0, 120: 93.0, 145: 99.0, 165: 101.0}
+
+# FAA-EE-81-16 (Newman, Rickley and Ford, 1981) appendix A, the UH-60A over the centreline's centre microphone, 1.2 m up, each an average of several
+# runs: (kt indicated, ft/min, height m, maximum dBA, OASPL dB). Speeds and rates from appendix D's cockpit photographs: the approaches' 6 deg glide
+# slope, closest point 120 m, on June 22 at about 70 kt and on June 26 at the best rate of climb speed, 10 kt over and 10 kt under it, read 76, 59 and
+# 56.5 kt. Three of the June 22 approaches read -1900 ft/min, a moment's reading: their levels are the others'. The 100 kt level is a single run
+UH60_FAA = [(100.0, 0.0, 152.4, 80.3, 89.4), (115.0, 0.0, 152.4, 81.8, 90.9), (132.0, 0.0, 152.4, 84.0, 93.9), (152.0, 0.0, 152.4, 86.1, 97.8),
+            (165.0, 0.0, 152.4, 85.2, 99.8), (150.0, 0.0, 91.4, 89.2, 101.4), (150.0, 0.0, 213.4, 81.8, 93.8), (150.0, 0.0, 304.8, 79.2, 92.0),
+            (70.0, -800.0, 120.0, 87.2, 98.6), (76.0, -875.0, 120.0, 86.9, 97.4), (59.0, -733.0, 120.0, 86.2, 96.6), (56.5, -650.0, 120.0, 85.5, 95.0)]
+
+# the same report, June 26, a 150 kt flyover at 152 m, most runs flying east: beside the path (m, side, microphone height m, maximum dBA); the centre's
+# 84.2 stands 1.9 dB under June 22's 86.1 at much the same condition
+UH60_FAA_SITES = [(0.0, "right", 1.2, 84.2), (150.0, "right", 1.2, 84.9), (164.0, "left", 1.2, 85.6), (284.0, "left", 1.2, 82.7), (0.0, "right", 0.0, 87.7),
+                  (0.0, "right", 10.0, 83.8)]
+
+# overall level less A-weighted level under the path and 150 m beside it, those runs (dB): the side's sound is the less low-pitched
+UH60_FAA_GAP = (97.3 - 84.2, 95.0 - 84.9)
+
+# appendix D's torque, %, of level flights by indicated airspeed: 20 kt read 75-77 near the hover, 160 kt 99-101
+UH60_FAA_TORQUE = {100.0: 49.0, 115.0: 59.0, 132.0: 69.5, 152.0: 88.5, 165.0: 100.0}
+
+# NASA CR-2377 (Healy, 1974) fig. 20(B), digitised: the Prue-2 glider at 152.4 m over the microphones, heavy, the runs' spectra as Healy smoothed them,
+# without their tones and the ambient below about 300 Hz (kt: {Hz: dB}); table III their overall levels, which add 3 dB for the part below 300 Hz;
+# eq. 5a his law for an aircraft's overall level
+_PF = (400, 500, 630, 800, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300)
+PRUE2 = {59.1: dict(zip(_PF, (24.0, 24.0, 23.7, 23.1, 21.3, 19.5, 18.1, 16.0, 13.1, 10.0, 6.3, 2.0))),
+         81.9: dict(zip(_PF, (33.0, 33.1, 33.0, 32.6, 30.5, 29.2, 28.0, 26.2, 24.2, 21.4, 18.0, 13.6))),
+         99.9: dict(zip(_PF, (35.8, 35.8, 35.8, 35.6, 34.8, 34.1, 33.1, 31.9, 30.1, 28.3, 25.9, 22.5)))}
+PRUE2_OASPL = {59.1: 35.3, 81.9: 44.6, 99.9: 48.3}
+
+# a YF-102's combustion noise, NASA TM-73748 (Karchmer, Reshotko and Montegani, 1977): table I, overall power dB re 1e-13 W, by fan speed %: GE's method
+# (its ref. 9, FAA-RD-77-4), the far field's 50-200 Hz bands, an upper bound, and the part coherent with one combustor probe, which NASA TM-88971
+# (Krejsa, 1987) puts 3 to 10 dB low. Its fig. 10, digitised: directivity index, dB, by angle from the inlet. TM-88971 fig. 2: the core noise by three
+# signal coherence at 95 % speed, 120 deg, third octaves, dB; its axis prints 80 on the first tick where the spacing makes it 50 Hz
+YF102_POWER = {30: (127.0, 125.0, 120.0), 43: (131.5, 128.2, 123.5), 60: (136.0, 134.5, 126.2)}
+YF102_DI = {40: -5.9, 50: -3.9, 60: -3.9, 70: -2.8, 80: -1.9, 90: -0.5, 100: 1.5, 110: 2.2, 120: 2.3, 130: 1.5, 140: 1.1, 150: 1.0, 160: -1.5}
+YF102_CORE = {50: 78.9, 63: 80.7, 80: 80.2, 100: 81.9, 125: 84.8, 160: 87.7, 200: 87.3, 250: 87.0, 315: 91.3, 400: 92.2, 500: 97.6, 630: 92.8, 800: 91.4,
+              1000: 90.2}
+# GE's method less the data for a GEnx-1B and a GE90-115B in flight (Nesbitt, Clark, Guo and Thomas, AIAA 2025-3896): dB, low to high power, read off
+GE_MODERN = (10.0, 21.0)
+# NACA 1329 (Callaghan and Coles, 1957): sound power over Lighthill's parameter rho A V^8 / c^5, cold jets and engines alike
+NACA1329_K = 2.7e-5
+
 # Noise and Military Service (National Academies, 2006) table 3-1, from the US Army Center for Health Promotion and Preventive Medicine (2004):
 # in flight, the condition not stated, dBA
 ARMY_COCKPIT_DBA = dict(uh60a_pilot=106.0, uh60a_copilot=106.0, ch47d=103.0, yah64_pilot=104.0, yah64_copilot=101.0)

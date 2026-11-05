@@ -324,16 +324,151 @@ def cabin():
 
 def cockpit():
     c = R("cockpit")
-    r = {q["tag"]: q for q in c["rows"]}
-    num("NCkHover", r["hover"]["total"])
-    num("NCkCruise", r["cruise"]["total"])
-    num("NCkTest", c["test"]["uh60a_pilot"], "%.0f")
-    num("NCkLo", c["test"]["uh60a_pilot"] - r["hover"]["total"], "%.0f")
-    num("NCkHi", c["test"]["uh60a_pilot"] - r["cruise"]["total"], "%.0f")
-    num("NCkGear", r["hover"]["gearbox"], "%.0f")
-    num("NCkRotHover", r["hover"]["rotors"], "%.0f")
-    num("NCkRotCruise", r["cruise"]["rotors"], "%.0f")
-    num("NCkEng", r["hover"]["engines"], "%.0f")
+    rows = {q["kt"]: q for q in c["rows"]}
+    fc = np.array(c["fc"])
+    r = rows[120]
+    d = np.array(r["octaves"]) - np.array(c["pilot"]["bands"])
+    num("NCkBandMax", float(np.abs(d[fc >= 125]).max()))
+    num("NCkLowHi", float(d[fc < 100].max()), "%.0f")
+    num("NCkLowLo", float(d[fc < 100].min()), "%.0f")
+    num("NCkCruise", r["dba"])
+    num("NCkPilot", c["pilot"]["dba"], "%.0f")
+    num("NCkCopilot", c["copilot"]["dba"], "%.0f")
+    num("NCkNasaCruise", c["nasa"]["120"], "%.0f")
+    num("NCkHover", rows[0]["dba"])
+    num("NCkNasaHover", c["nasa"]["0"], "%.0f")
+    num("NCkArmy", c["army"]["uh60a_pilot"], "%.0f")
+    e = np.array([q["dba"] - c["nasa"][str(q["kt"])] for q in c["rows"]])
+    num("NCkNasaMean", e.mean(), "%+.1f")
+    num("NCkNasaSd", e.std())
+    P = rows[0]["parts"]
+    num("NCkDrive", P["drive"], "%.0f")
+    num("NCkRotHover", P["rotors"], "%.0f")
+    num("NCkEng", P["engines"], "%.0f")
+    num("NCkWind", r["parts"]["wind"], "%.0f")
+    o = next(q for q in R("before_cockpit")["rows"] if q["kt"] == 120)
+    d0 = np.array(o["octaves"]) - np.array(c["pilot"]["bands"])
+    under = -d0[(fc >= 250) & (fc != 1000)]
+    num("NCkOldCruise", o["dba"])
+    num("NCkOldTone", float(d0[fc == 1000][0]), "%.0f")
+    num("NCkOldUnderLo", float(under.min()), "%.0f")
+    num("NCkOldUnderHi", float(under.max()), "%.0f")
+
+
+def f_(x):
+    return "0.0" if abs(x) < 0.05 else ("%+.1f" % x).replace("-", "$-$")
+
+
+def flight():
+    f = R("flight")["rows"]
+    d = np.array([q["dba"] - q["test_dba"] for q in f])
+    lvl = np.array([q["fpm"] == 0 for q in f])
+    num("NFlMean", d.mean(), "%+.1f")
+    num("NFlRms", float(np.sqrt(np.mean(d ** 2))))
+    num("NFlLevelMean", d[lvl].mean(), "%+.1f")
+    num("NFlLevelSd", d[lvl].std())
+    a = [q for q, l in zip(f, lvl) if not l]
+    da = d[~lvl]
+    num("NFlAppMean", da.mean(), "%+.1f")
+    num("NFlAppMin", float(da.min()), "%+.1f")
+    num("NFlAppMax", float(da.max()), "%+.1f")
+    num("NFlAppTestLo", min(q["test_dba"] for q in a))
+    num("NFlAppTestHi", max(q["test_dba"] for q in a))
+    num("NFlAppLo", min(q["dba"] for q in a))
+    num("NFlAppHi", max(q["dba"] for q in a))
+    num("NFlAppSlap", float(np.mean([q["slap"] for q in a])), "%.0f")
+    num("NFlAppRest", float(np.mean([10 * np.log10(10 ** (q["dba"] / 10) - 10 ** (q["slap"] / 10)) for q in a])), "%.0f")
+    num("NFlLevelSlap", max(q["slap"] for q, l in zip(f, lvl) if l), "%.0f")
+    s = [q for q in f if q["height"] == 152.4]
+    num("NFlSlowDiff", s[1]["dba"] - s[1]["test_dba"], "%+.1f")
+    num("NFlFastDiff", s[3]["dba"] - s[3]["test_dba"], "%+.1f")
+    num("NFlEngines", s[0]["engines"], "%.0f")
+    num("NFlOaRise", s[3]["test_oaspl"] - s[0]["test_oaspl"], "%.0f")
+    num("NFlTestRise", s[3]["test_dba"] - s[0]["test_dba"], "%.0f")
+    num("NFlModRise", s[3]["dba"] - s[0]["dba"], "%+.1f")
+    o = np.array([q["oaspl"] - q["test_oaspl"] for q in f])
+    num("NFlOaLevel", o[lvl].mean(), "%+.1f")
+    num("NFlOaApp", o[~lvl].mean(), "%+.1f")
+    T = R("flight")["torque"]
+    e = np.array([100 * (q["torque"] / T[str(q["kt"])] - 1) for q in s])
+    num("NFlTorqueLo", float(e.max()), "%+.0f")
+    num("NFlTorqueHi", float(e.min()), "%+.0f")
+    rows = ["%s & %.0f & %.1f & %.1f & %s" % ("6$^\\circ$ approach" if q["fpm"] else "level", q["height"], q["test_dba"], q["dba"], f_(q["dba"] - q["test_dba"])) for q in f]
+    rows = ["%.0f & %s" % (q["kt"], x) for q, x in zip(f, rows)]
+    write("flight", tabular("rlrrrr", "kt & & m & test & model & diff.", rows))
+    w = R("sites")["rows"]
+    c = next(q for q in w if q["y"] == 0 and q["mic"] == 1.2)
+    side = [q for q in w if q["y"] > 0]
+    ds = np.array([q["dba"] - q["test"] for q in side])
+    num("NFlSideMean", ds.mean(), "%+.1f")
+    num("NFlSideLo", float(np.abs(ds).min()), "%.0f")
+    num("NFlSideHi", float(np.abs(ds).max()), "%.0f")
+    num("NFlCentre", c["dba"])
+    num("NFlCentreTest", c["test"])
+    near = [q for q in side if q["y"] < 200]
+    far = [q for q in side if q["y"] > 200][0]
+    num("NFlNearTest", float(np.mean([q["test"] for q in near])) - c["test"], "%+.1f")
+    num("NFlNearMod", float(np.mean([q["dba"] for q in near])) - c["dba"], "%+.1f")
+    num("NFlFarTest", far["test"] - c["test"], "%+.1f")
+    num("NFlFarMod", far["dba"] - c["dba"], "%+.1f")
+    gap = R("sites")["gap"]
+    num("NFlGapCentre", gap[0], "%.0f")
+    num("NFlGapSide", gap[1], "%.0f")
+    g = next(q for q in w if q["mic"] == 0.0)
+    h = next(q for q in w if q["mic"] == 10.0)
+    num("NFlFlushTest", g["test"] - c["test"], "%+.1f")
+    num("NFlFlushMod", g["dba"] - c["dba"], "%+.1f")
+    num("NFlTallTest", h["test"] - c["test"], "%+.1f")
+    num("NFlTallMod", h["dba"] - c["dba"], "%+.1f")
+
+
+def prue():
+    p = R("prue")["rows"]
+    d = [np.array(q["at_test"]) - np.array(q["test"]) for q in p]
+    a = np.concatenate(d)
+    num("NPrMean", a.mean(), "%+.1f")
+    num("NPrRms", float(np.sqrt(np.mean(a ** 2))))
+    num("NPrShape", max(float(x.std()) for x in d))
+    num("NPrLo", min(float(-x.mean()) for x in d))
+    num("NPrHi", max(float(-x.mean()) for x in d))
+    kt = np.log10([q["kt"] for q in p])
+    num("NPrExpModel", np.polyfit(kt, [q["oaspl"] for q in p], 1)[0] / 10)
+    num("NPrExpTest", np.polyfit(kt, [q["test_oaspl"] for q in p], 1)[0] / 10)
+    e = np.array([q["oaspl"] - q["test_oaspl"] for q in p])
+    num("NPrOaMean", e.mean(), "%+.1f")
+    l = np.array([q["law"] - q["test_oaspl"] for q in p])
+    num("NPrLawMean", l.mean(), "%+.1f")
+    m = np.array([q["oaspl"] - q["law"] for q in p])
+    num("NPrLawModel", m.mean(), "%+.1f")
+
+
+def core():
+    c = R("core")
+    d = np.array(c["shape"]) - np.array(c["measured"])
+    num("NCoShape", float(d.std()))
+    f = np.array(c["f"])
+    num("NCoPeak", float(f[int(np.argmax(c["measured"]))]), "%.0f")
+    e = np.array(c["di"]) - np.array(c["di_test"])
+    num("NCoDi", float(np.sqrt(np.mean(e ** 2))))
+    num("NCoDiMax", float(np.abs(e).max()))
+    P = np.array(list(c["power"].values()))
+    num("NCoDirectLo", float((P[:, 0] - P[:, 1]).min()))
+    num("NCoDirectHi", float((P[:, 0] - P[:, 1]).max()))
+    num("NCoCohLo", float((P[:, 0] - P[:, 2]).min()), "%.0f")
+    num("NCoCohHi", float((P[:, 0] - P[:, 2]).max()), "%.0f")
+    num("NCoModLo", c["modern"][0], "%.0f")
+    num("NCoModHi", c["modern"][1], "%.0f")
+    cut = []
+    for q in c["parts"]:
+        tot, core_ = 10 ** (q["total"] / 10), 10 ** (q["layer/core"] / 10)
+        cut.append(q["total"] - 10 * np.log10(tot - 0.9 * core_))
+    num("NCoCutLo", min(cut))
+    num("NCoCutHi", max(cut))
+    j = c["jets"]
+    k = [10 * np.log10(q["k"] / c["k_test"]) for q in j if q["v"] <= 250]
+    num("NCoJetLo", min(k))
+    num("NCoJetHi", max(k))
+    num("NCoJetSt", float(np.mean([q["st"] for q in j])))
 
 
 def mv22():
@@ -458,7 +593,7 @@ def before_after():
 
 if __name__ == "__main__":
     os.makedirs(TAB, exist_ok=True)
-    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, mv22, ask21, bench, before_after):
+    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, bench, before_after):
         try:
             fn()
         except (FileNotFoundError, KeyError) as e:

@@ -746,28 +746,144 @@ def wind():
     dump("wind", dict(rows=rows, altitude=alt, tu144=dict(f=fq, model=level, test=t["level"], p_rms_q=float(np.sqrt(p2) / (0.5 * atm.rho * U ** 2)))))
 
 
-def cockpit():
-    """the UH-60A's cockpit against the Army's 106 dBA (Noise and Military Service, table 3-1): everything at the pilot's seat"""
+def octaves(x, fc=D.UH60_OCTAVES):
+    f, P = welch(x, FS, nperseg=2 ** 15)
+    return np.array([10 * np.log10(P[(f >= c / 2 ** 0.5) & (f < c * 2 ** 0.5)].sum() * (f[1] - f[0]) / 4e-10 + 1e-30) for c in fc])
+
+
+def _cockpit_point(kt):
     from pywopwop.wind import wind_loop
     ac = load_aircraft("uh60a")
     o = Observer("cockpit", position=tuple(ac.cockpit))
     tr = en.load_transmission("uh60a")
     q = Quality.get("normal")
-    hover = operate(ac, FlightCondition(), AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth))
-    p_hover = sum(p.aero.power for p in hover.points)
+    ao = AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth)
+    p_hover = sum(p.aero.power for p in operate(ac, FlightCondition(), ao).points)
+    fc = FlightCondition(airspeed_kt=kt)
+    st = operate(ac, fc, ao)
+    torque = 75.0 * sum(p.aero.power for p in st.points) / p_hover
+    parts = dict(rotors=render(ac, fc, o, duration=6.0, quality=q, state=st, cabin=ac.cabin, variability=Variability(seed=1)).total,
+                 drive=en.render_gearbox(tr, o, duration=6.0, torque_pct=torque).total)
+    eng = [en.render_engine(i, en.EngineCondition(94.0), o, duration=6.0, cabin=ac.cabin).total for i in en.load_installations("uh60a")]
+    n = min(len(v) for v in list(parts.values()) + eng)
+    parts["engines"] = sum(e[:n] for e in eng)
+    if kt > 0 and (ac.windscreen_m or ac.fuselage):
+        parts["wind"] = wind_loop(ac, kt, 0.0, duration=6.0)
+    n = min(len(v) for v in parts.values())
+    parts = {k: v[:n] for k, v in parts.items()}
+    total = sum(parts.values())
+    return dict(kt=kt, torque=torque, dba=dba(total), parts={k: dba(v) for k, v in parts.items()}, octaves=octaves(total),
+                part_octaves={k: octaves(v) for k, v in parts.items()})
+
+
+def cockpit():
+    """the UH-60A at the pilot's seat: everything, against Mace's octave bands at 120 kt and NASA's levels over the speed range"""
+    with ProcessPoolExecutor(3) as ex:
+        rows = list(ex.map(_cockpit_point, sorted(D.UH60_NASA_DBA)))
+    dump("cockpit", dict(rows=rows, fc=D.UH60_OCTAVES, pilot=D.UH60_PILOT, copilot=D.UH60_COPILOT, nasa=D.UH60_NASA_DBA, army=D.ARMY_COCKPIT_DBA))
+
+
+def _flight(a):
+    """one flight of the FAA's: the largest A-weighted level along the path, the rotors and both engines at each angle under it, for their microphone"""
+    kt, fpm, H, test_dba, test_oaspl = a
+    ac = load_aircraft("uh60a")
+    q = Quality.get("normal")
+    fc = FlightCondition(airspeed_kt=kt, climb_fpm=fpm)
+    ao = AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth)
+    st = operate(ac, fc, ao)
+    p_hover = sum(p.aero.power for p in operate(ac, FlightCondition(), ao).points)
+    insts = en.load_installations("uh60a")
+    env = Environment("ground", listener_height=1.2)
     rows = []
-    for tag, fc, ng in (("hover", FlightCondition(), 94.0), ("cruise", FlightCondition(airspeed_kt=120.0), 94.0)):
-        st = operate(ac, fc, AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth))
-        torque = 75.0 * sum(p.aero.power for p in st.points) / p_hover
-        parts = dict(rotors=dba(render(ac, fc, o, duration=6.0, quality=q, state=st, cabin=ac.cabin, variability=Variability(seed=1)).total))
-        parts["gearbox"] = dba(en.render_gearbox(tr, o, duration=6.0, torque_pct=torque).total)
-        parts["engines"] = 10 * np.log10(sum(10 ** (dba(en.render_engine(i, en.EngineCondition(ng), o, duration=6.0, cabin=ac.cabin).total) / 10) for i in en.load_installations("uh60a")))
-        if fc.airspeed_kt > 0 and ac.windscreen_m:
-            parts["wind"] = dba(wind_loop(ac, fc.airspeed_kt, 0.0, duration=6.0))
-        total = 10 * np.log10(sum(10 ** (v / 10) for v in parts.values()))
-        rows.append(dict(tag=tag, torque=torque, total=total, **parts))
-        print(rows[-1], flush=True)
-    dump("cockpit", dict(rows=rows, test=D.ARMY_COCKPIT_DBA))
+    for az, el in ((0, -25), (0, -35), (0, -50), (0, -70), (0, -89), (180, -70), (180, -50), (180, -35)):
+        d = H / np.sin(np.radians(-el))
+        r = render(ac, fc, Observer("p", az, el, d), duration=4.0, quality=q, state=st, variability=Variability(seed=1), environment=env)
+        lv = r.levels()
+        o = Observer("side", az, 0.0, d * np.cos(np.radians(el)))
+        e = [en.render_engine(i, en.EngineCondition(94.0), o, duration=3.0, hub_height=H, environment=env).levels()["total"] for i in insts]
+        add = lambda x: 10 * np.log10(sum(10 ** (v / 10) for v in x))
+        rows.append(dict(az=az, el=el, rotors=lv["total"]["dba"], slap=lv.get("layer/slap", dict(dba=-99))["dba"], engines=add([v["dba"] for v in e]),
+                         dba=add([lv["total"]["dba"]] + [v["dba"] for v in e]), oaspl=add([lv["total"]["oaspl"]] + [v["oaspl"] for v in e])))
+    b = max(rows, key=lambda x: x["dba"])
+    return dict(kt=kt, fpm=fpm, height=H, test_dba=test_dba, test_oaspl=test_oaspl, dba=b["dba"], oaspl=max(x["oaspl"] for x in rows), at=[b["az"], b["el"]], rotors=b["rotors"], engines=b["engines"],
+                slap=b["slap"], torque=75.0 * sum(p.aero.power for p in st.points) / p_hover, rows=rows)
+
+
+def flight():
+    with ProcessPoolExecutor(3) as ex:
+        rows = list(ex.map(_flight, D.UH60_FAA))
+    dump("flight", dict(rows=rows, torque={str(k): v for k, v in D.UH60_FAA_TORQUE.items()}))
+
+
+def _site(a):
+    """the 150 kt flyover at 152 m from a microphone beside the path: the largest level along it"""
+    y, side, h, test = a
+    ac = load_aircraft("uh60a")
+    q = Quality.get("normal")
+    fc = FlightCondition(airspeed_kt=150.0)
+    st = operate(ac, fc, AeroOptions(n_radial=q.n_radial, n_azimuth=q.n_azimuth))
+    insts = en.load_installations("uh60a")
+    env = Environment("ground", listener_height=h)
+    H = 152.4
+    lat = y if side == "right" else -y
+    add = lambda x: 10 * np.log10(sum(10 ** (v / 10) for v in x))
+    best = -99.0
+    for x in (-300.0, -150.0, -75.0, 0.0, 75.0, 150.0, 300.0):
+        hor = float(np.hypot(x, lat))
+        d = float(np.hypot(hor, H))
+        az = float(np.degrees(np.arctan2(lat, x)))
+        el = max(-float(np.degrees(np.arcsin(H / d))), -89.0)
+        r = render(ac, fc, Observer("p", az, el, d), duration=4.0, quality=q, state=st, variability=Variability(seed=1), environment=env)
+        e = [en.render_engine(i, en.EngineCondition(94.0), Observer("side", az, 0.0, max(hor, 1.0)), duration=3.0, hub_height=H, environment=env).levels()["total"]["dba"] for i in insts]
+        best = max(best, add([r.levels()["total"]["dba"]] + e))
+    return dict(y=y, side=side, mic=h, test=test, dba=best)
+
+
+def sites():
+    with ProcessPoolExecutor(3) as ex:
+        dump("sites", dict(rows=list(ex.map(_site, D.UH60_FAA_SITES)), gap=D.UH60_FAA_GAP))
+
+
+def core():
+    """GE's combustion noise and the jet's against what NASA measured, and what the method's doubt is worth in a T700"""
+    f = np.array(sorted(D.YF102_CORE), float)
+    shape = 10.0 * np.interp(np.log10(f / 400.0), *en._S_COMB)
+    th = np.array(sorted(D.YF102_DI), float)
+    t = np.radians(en._TH)
+    Dm = 10.0 ** np.array(en._D_COMB)
+    mean = np.trapezoid(Dm * np.sin(t), t) / 2.0
+    di = 10.0 * np.interp(th, en._TH, en._D_COMB) - 10.0 * np.log10(mean)
+    inst = en.load_installations("uh60a")[0]
+    o = Observer("side", 90.0, 0.0, 50.0)
+    parts = []
+    for ng in (87.5, 94.0, 99.5):
+        L = en.render_engine(inst, en.EngineCondition(ng), o, duration=4.0).levels()
+        parts.append(dict(ng=ng, **{k: v["dba"] for k, v in L.items() if isinstance(v, dict) and "dba" in v}))
+    atm = en.Atmosphere(0.0)
+    area = np.pi * 0.0508 ** 2
+    jets = []
+    for v in (150.0, 200.0, 250.0, 300.0):
+        b = en.jet_noise(v, atm.rho, area, atm).bands
+        k = b.sum() * 4.0 * np.pi / (atm.rho * atm.c) / (atm.rho * area * v ** 8 / atm.c ** 5)
+        jets.append(dict(v=v, k=k, st=float(en.BANDS[int(np.argmax(b))] * 0.1016 / v)))
+    dump("core", dict(f=f, measured=[D.YF102_CORE[int(x)] for x in f], shape=shape, th=th, di_test=[D.YF102_DI[int(x)] for x in th], di=di,
+                      power={str(k): v for k, v in D.YF102_POWER.items()}, parts=parts, jets=jets, modern=D.GE_MODERN, k_test=D.NACA1329_K))
+
+
+def prue():
+    """the ASK 21 at the Prue-2's height over the microphones"""
+    from pywopwop.glider import BANDS as GB, GliderCondition, load_glider, spectra
+    g = load_glider("ask21")
+    rows = []
+    for kt, test in D.PRUE2.items():
+        sp, _ = spectra(g, GliderCondition(airspeed_kt=kt), np.array([0.0, 0.0, -152.4]), inside=False)
+        m = sp["airframe"] * 10 ** (-iso9613_alpha(GB, 288.15, 50.0, 101325.0) * 152.4 / 10)
+        L = 10 * np.log10(m + 1e-30) + 93.98
+        f = np.array(sorted(test))
+        M = kt * 0.514444 / 340.3
+        rows.append(dict(kt=kt, f=GB, model=L, test_f=f, test=[test[k] for k in f], at_test=np.interp(np.log(f), np.log(GB), L), oaspl=10 * np.log10((10 ** (L[GB >= 300] / 10)).sum()) + 3.0,
+                         test_oaspl=D.PRUE2_OASPL[kt], law=10 * np.log10(M ** 6 * g.wing_area / (g.span ** 2 / g.wing_area) ** 4 / 152.4 ** 2) + 178.4))
+    dump("prue", dict(rows=rows))
 
 
 # ---------------------------------------------------------------- the MV-22B's cockpit against its recording
@@ -1090,7 +1206,7 @@ def bench():
 
 
 STAGES = dict(verify=verify, rotors=rotors, stand=stand, hart2=hart2, bvi=bvi, texture=texture, fountain=fountain, outside=outside, engines=engines, tones=tones, cabin=cabin,
-              wind=wind, cockpit=cockpit, mv22=mv22, chop=chop, mv22_terms=mv22_terms, ask21=ask21, bench=bench)
+              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, ask21=ask21, bench=bench)
 
 if __name__ == "__main__":
     import pywopwop
