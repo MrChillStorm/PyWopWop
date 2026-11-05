@@ -120,6 +120,11 @@ PRUE2 = {59.1: dict(zip(_PF, (24.0, 24.0, 23.7, 23.1, 21.3, 19.5, 18.1, 16.0, 13
          99.9: dict(zip(_PF, (35.8, 35.8, 35.8, 35.6, 34.8, 34.1, 33.1, 31.9, 30.1, 28.3, 25.9, 22.5)))}
 PRUE2_OASPL = {59.1: 35.3, 81.9: 44.6, 99.9: 48.3}
 
+# the Cessna 150 of the same test: fixed gear, no fairings, fig. 21 its smoothed spectra (kt: {Hz: dB}, digitised); the tyres about 0.44 m (two) and 0.36 m
+CESSNA150 = {58.1: {200: 40.6, 250: 39.7, 315: 39.0, 400: 38.1, 500: 37.2, 630: 36.2, 800: 34.7},
+             90.7: {200: 50.6, 315: 49.4, 400: 48.7, 500: 47.9, 630: 47.0, 800: 46.0}}
+CESSNA150_TYRES = ((0.44, 2), (0.36, 1))
+
 # a YF-102's combustion noise, NASA TM-73748 (Karchmer, Reshotko and Montegani, 1977): table I, overall power dB re 1e-13 W, by fan speed %: GE's method
 # (its ref. 9, FAA-RD-77-4), the far field's 50-200 Hz bands, an upper bound, and the part coherent with one combustor probe, which NASA TM-88971
 # (Krejsa, 1987) puts 3 to 10 dB low. Its fig. 10, digitised: directivity index, dB, by angle from the inlet. TM-88971 fig. 2: the core noise by three

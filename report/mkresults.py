@@ -871,19 +871,48 @@ def core():
 
 
 def prue():
-    """the ASK 21 at the Prue-2's height over the microphones"""
-    from pywopwop.glider import BANDS as GB, GliderCondition, load_glider, spectra
+    """the ASK 21 at the Prue-2's height over the microphones, clean and with its wheels; Fink's wheels on the test's Cessna; the wheels in the cockpit"""
+    from pywopwop.glider import BANDS as GB, GliderCondition, fink_wheel, load_glider, spectra, wheel_noise
     g = load_glider("ask21")
+    atm = Atmosphere(0.0)
+    pos = np.array([0.0, 0.0, -152.4])
+    A = 10 ** (-iso9613_alpha(GB, 288.15, 50.0, 101325.0) * 152.4 / 10)
+    db = lambda m: 10 * np.log10(m + 1e-30) + 93.98
     rows = []
     for kt, test in D.PRUE2.items():
-        sp, _ = spectra(g, GliderCondition(airspeed_kt=kt), np.array([0.0, 0.0, -152.4]), inside=False)
-        m = sp["airframe"] * 10 ** (-iso9613_alpha(GB, 288.15, 50.0, 101325.0) * 152.4 / 10)
-        L = 10 * np.log10(m + 1e-30) + 93.98
+        c = GliderCondition(airspeed_kt=kt)
+        sp, _ = spectra(g, c, pos, inside=False)
+        w = wheel_noise(g, c.V, pos, atm)
+        L = db((sp["airframe"] - w) * A)
         f = np.array(sorted(test))
         M = kt * 0.514444 / 340.3
-        rows.append(dict(kt=kt, f=GB, model=L, test_f=f, test=[test[k] for k in f], at_test=np.interp(np.log(f), np.log(GB), L), oaspl=10 * np.log10((10 ** (L[GB >= 300] / 10)).sum()) + 3.0,
-                         test_oaspl=D.PRUE2_OASPL[kt], law=10 * np.log10(M ** 6 * g.wing_area / (g.span ** 2 / g.wing_area) ** 4 / 152.4 ** 2) + 178.4))
-    dump("prue", dict(rows=rows))
+        rows.append(dict(kt=kt, f=GB, model=L, total=db(sp["airframe"] * A), wheels=db(w * A), test_f=f, test=[test[k] for k in f], at_test=np.interp(np.log(f), np.log(GB), L),
+                         oaspl=10 * np.log10((10 ** (L[GB >= 300] / 10)).sum()) + 3.0, test_oaspl=D.PRUE2_OASPL[kt],
+                         law=10 * np.log10(M ** 6 * g.wing_area / (g.span ** 2 / g.wing_area) ** 4 / 152.4 ** 2) + 178.4))
+    cessna = []
+    for kt, test in D.CESSNA150.items():
+        p = sum(n * fink_wheel(d, kt * 0.514444, pos, atm) for d, n in D.CESSNA150_TYRES) * A
+        f = np.array(sorted(test))
+        cessna.append(dict(kt=kt, f=f, test=[test[k] for k in f], wheels=np.interp(np.log(f), np.log(GB), db(p))))
+    head = to_ask21_head(g)
+    inside = []
+    for kt in (60.0, 100.0):
+        c = GliderCondition(airspeed_kt=kt)
+        sp, _ = spectra(g, c, head, inside=True)
+        w = wheel_noise(g, c.V, head, atm) * sp_transmission(g)
+        band = (GB >= 100) & (GB <= 400)
+        inside.append(dict(kt=kt, under=float(np.max(db(w[band]) - db(sp["wind"][band])))))
+    dump("prue", dict(rows=rows, cessna=cessna, inside=inside))
+
+
+def to_ask21_head(g):
+    from pywopwop.glider import to_body
+    return to_body(*g.cockpit["front"])
+
+
+def sp_transmission(g):
+    from pywopwop.glider import BANDS as GB, _mass_law
+    return _mass_law(GB, g.fuselage["canopy_surface_mass"])
 
 
 # ---------------------------------------------------------------- the MV-22B's cockpit against its recording
@@ -1098,6 +1127,73 @@ def median_bands(x, fs, fc, n=16384):
     return np.array([10 * np.log10(np.median(P[(f >= c * 2 ** (-1 / 6)) & (f < c * 2 ** (1 / 6))]) * ((f >= c * 2 ** (-1 / 6)) & (f < c * 2 ** (1 / 6))).sum() + 1e-20) for c in fc])
 
 
+def roar():
+    """the cockpit's low roar, measured: each band of the first recording split into a part fixed in time and a part growing with the airspeed, set to the
+    model's 1-4 kHz, less what the model has there without it. Checked on a recording it doesn't use: the roll, another glider, a phone"""
+    from dataclasses import replace
+    from scipy.optimize import nnls
+    from pywopwop.glider import BANDS as GB, GliderCondition, load_glider, spectra, to_body
+    g = load_glider("ask21")
+    g0 = replace(g, roar=None)
+    ear = to_body(*g.cockpit["front"])
+    use = (GB >= 30) & (GB <= 6400)
+    fc = GB[use]
+    KTS = np.array([40.0, 50.0, 60.0, 75.0, 90.0, 105.0, 120.0])
+
+    def model(gl, v):
+        sp, _ = spectra(gl, GliderCondition(airspeed_kt=v), ear, inside=True)
+        return 10 * np.log10(sp["wind"] + sp["airframe"] + 1e-30)[use] + 93.98
+    M = np.array([model(g0, v) for v in KTS])
+    fs, x = read_wav(os.path.join(REC, "ask21_aerobatics", "mono.wav"))
+    d = json.load(open(os.path.join(HERE, "data", "ask21_asi.json")))
+    tt, kt = np.array(d["t"]), np.array(d["kt"])
+    T = np.arange(0.0, len(x) / fs - 1.0, 0.5)
+    R = np.array([median_bands(x[int(t * fs):int((t + 1.0) * fs)], fs, fc) for t in T])
+    V = np.array([np.mean(kt[(tt >= t) & (tt < t + 1.0)]) if ((tt >= t) & (tt < t + 1.0)).any() else np.nan for t in T])
+    s = np.isfinite(V) & (V > 30)
+    ref = (fc >= 1000) & (fc <= 4000)
+    lv = np.log10(KTS)
+    mref = np.interp(np.log10(V[s]), lv, 10 * np.log10((10 ** (M[:, ref] / 10)).mean(1)))
+    off = float(np.median(mref - 10 * np.log10((10 ** (R[s][:, ref] / 10)).mean(1))))
+    low = np.where(fc <= 520)[0]
+    fits = {}
+    for n in (2, 3, 4, 5, 6):
+        fl, fw, e = [], [], []
+        for j in low:
+            y = 10 ** (R[s, j] / 10)
+            A = np.c_[np.ones(s.sum()), (V[s] / 100.0) ** n]
+            c = nnls(A / y[:, None], np.ones(s.sum()))[0]
+            fl.append(10 * np.log10(max(c[0], 1e-9)) + off)
+            fw.append(10 * np.log10(max(c[1], 1e-9)) + off)
+            e.append(float(np.std(10 * np.log10((A @ c) / y))))
+        fits[n] = dict(floor=fl, flow=fw, rms=e)
+    m100 = np.array([np.interp(2.0, lv, M[:, j]) for j in low])
+    flow = np.array(fits[3]["flow"])
+    res = 10 * np.log10(np.maximum(10 ** (flow / 10) - 10 ** (m100 / 10), 1e-3))
+    stall = (V > 30) & (V < 42)
+    fast = (V > 108) & (V < 118)
+    # the roll: another glider and microphone, relative to its own 1-4 kHz, without and with the roar
+    fs3, z = read_wav(os.path.join(REC, "roll_short", "mono.wav"))
+    win = np.arange(0.25, 18.8, 0.5)
+    Vr = np.interp(win, *np.array(D.ROLL_ASI).T) / 1.852
+    gap = np.zeros(len(win), bool)
+    for a_, b_ in D.ROLL_GAPS:
+        gap |= (win > a_) & (win < b_)
+    Rr = np.array([median_bands(z[int((t - 0.25) * fs3):int((t + 0.75) * fs3)], fs3, fc) for t in win])
+    k = (fc >= 120) & (fc <= 330)
+    roll = []
+    for lo, hi in ((60, 75), (75, 90), (90, 110)):
+        m = (Vr >= lo) & (Vr < hi) & ~gap
+        r = Rr[m].mean(0)
+        v = float(Vr[m].mean())
+        a, b = model(g0, v), model(g, v)
+        rr = r - r[ref].mean()
+        roll.append(dict(kt=v, n=int(m.sum()), rec=rr, without=a - a[ref].mean(), with_roar=b - a[ref].mean(), rms_without=float(np.sqrt(np.mean((rr - a + a[ref].mean())[k] ** 2))),
+                         rms_with=float(np.sqrt(np.mean((rr - b + a[ref].mean())[k] ** 2)))))
+    dump("roar", dict(fc=fc[low], offset=off, floor=fits[3]["floor"], flow=flow, model=m100, residual=res, rms={str(n): float(np.mean(f["rms"])) for n, f in fits.items()},
+                      stall=R[stall][:, low].mean(0), fast=R[fast][:, low].mean(0), corr=[float(np.corrcoef(np.log10(V[s]), R[s, j])[0, 1]) for j in low], roll=roll, preset=dict(hz=g.roar["hz"], db=g.roar["db"]) if g.roar else None))
+
+
 def ask21():
     from pywopwop.glider import BANDS as GB, GliderCondition, load_glider, spectra, stall_speed, to_body
     g = load_glider("ask21")
@@ -1206,7 +1302,7 @@ def bench():
 
 
 STAGES = dict(verify=verify, rotors=rotors, stand=stand, hart2=hart2, bvi=bvi, texture=texture, fountain=fountain, outside=outside, engines=engines, tones=tones, cabin=cabin,
-              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, ask21=ask21, bench=bench)
+              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, bench=bench)
 
 if __name__ == "__main__":
     import pywopwop

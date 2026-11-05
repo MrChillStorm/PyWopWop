@@ -145,7 +145,7 @@ The bank has 8 airspeeds from 40 to 150 kt with the brakes fully out and full ai
 stall at 1, 2, 3.5 and 5 g (an accelerated stall: at n g the wing stalls at the square root of n times the 1 g
 speed, and its separated flow is louder for the speed), and inverted at -1 g (from 1.1 times the inverted stall's
 speed, and that stall), at both seats and 4 positions outside (30 m). Layers:
-`airframe`, `wind` (inside), `brakes` (what the brakes add), `ailerons` (what full aileron and its roll add), and
+`airframe` (with the wheels that don't retract), `wind` (inside), `brakes` (what the brakes add), `ailerons` (what full aileron and its roll add), and
 `mix` (airframe and wind); the accelerated stalls have the airframe only. Slips (full rudder, about 17 degrees of
 sideslip) have the cockpit's loops. `pywopwop-glider.xml` cross-fades the
 airspeed loops by equal power on `velocities/airspeed-kt`: the canopy's wind by airspeed alone (the 1 g stall's
@@ -157,8 +157,8 @@ square root of `surface-positions/speedbrake-pos-norm` and the ailerons' with
 grows to the full-rudder slip's.
 
 The computed stall speed of the ASK 21 at 540 kg is 34.7 kt, the flight manual's 35 kt. In the cockpit the canopy's
-boundary layer dominates: 76 dBA at the stall, 77 at 40 kt, 88 at 150 kt (a study of the K7's cockpit found over 75
-dBA). Toward the stall the wing's root separates from the trailing edge (from 4.3 degrees body angle of attack at
+boundary layer dominates: 76 dBA at the stall, 77 at 40 kt, 89 at 150 kt (a study of the K7's cockpit found over 75
+dBA). Under it lies a low roar measured from recordings, 50 to 316 Hz, growing as the cube of the speed, its source unknown. Toward the stall the wing's root separates from the trailing edge (from 4.3 degrees body angle of attack at
 1 g), its hiss turning to rumble. The canopy's flow stays attached: its boundary layer thickens on the leeward line,
 but the wing's circulation keeps the flow over the canopy speeding up to the wing root, so the cockpit grows quieter
 toward the stall by the airspeed it loses. The brakes add a low rumble, clear outside and at speed, faint under the canopy's hiss at approach speeds:
@@ -320,8 +320,8 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   transmission loss for leaks had left it flat from 2 kHz up, 6 to 8 dB too bright), and from 400 Hz to 8 kHz its
   power grows as the airspeed to the power 2.2, the model's 1.9, though from 3 to 8 kHz faster than the model's. The second, without the first's whistle, keeps the model's
   shape within 2 dB from 400 Hz to 4 kHz. Above 5 kHz both fall faster than the model, 5 to 10 dB at 8 kHz and 10 to
-  25 dB above 10 kHz, and below 250 Hz both have more (10 to 25 dB in the first): how much of that their cameras'
-  microphones and mounts make can't be told from the cockpit's. The first glider's whistle, at about 25 Hz per knot
+  25 dB above 10 kHz: how much of that their cameras' microphones and mounts make can't be told from the cockpit's. The
+  first glider's whistle, at about 25 Hz per knot
   from 85 kt, is a leak of its own and not in the model.
 - Against a roll in an ASK 21's front cockpit (a video from a camera on the pilot's head; airspeed, load factor and
   sideslip read off the ASI, the g-meter and the yaw string): the roll is barrelled, from a pull-up at +1.5 to +3.5 g
@@ -412,8 +412,14 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   the test rises 6 dB and the model doesn't, and 150 to 284 m beside the path the model is 5 to 7 dB too quiet.
 - Against a UH-60A's cockpit: calibrated on the octave bands at the pilot's seat at 120 kt, the model follows NASA's levels
   with speed (TM-84664) within 1.2 dB, 5.4 dB over them.
-- Against NASA's flyovers of a Prue-2 glider (CR-2377): the ASK 21 model keeps the spectrum's shape within 1.9 dB rms at
-  each speed, 3 to 6 dB low.
+- Against NASA's flyovers of a Prue-2 glider (CR-2377): the ASK 21 model, its wheels left out, keeps the spectrum's shape
+  within 1.9 dB rms at each speed, 3 to 6 dB low.
+- A fixed wheel by Fink's method (ANOPP): on the same test's Cessna 150, with bare wheels, it stays 2 to 7 dB under the whole
+  aircraft, as it should. On the ASK 21 the wheels add 8 to 11 dB outside from 400 Hz to 1 kHz, an estimate no measurement
+  tests; in the cockpit, through the air, nothing to speak of.
+- The cockpit's low roar, measured on one recording: on another, a phone in another glider, it takes the error from 126 to
+  316 Hz from 9-12 dB to 4-6 dB rms. A floor under 130 Hz that stays the same from the stall to 115 kt is left out as not
+  the flow's.
 - Against NASA's YF-102 (TM-73748, TM-88971): GE's combustion noise keeps the shape within 3.5 dB rms and the directivity
   within 1.9. Flight tests put it 10 to 21 dB over modern turbofans; 10 dB off a T700's would take under 2 dB off the engine.
 - Against wall pressure measured in flight on the Tu-144LL (NASA CR-2005-213938), Mach 0.74: the spectrum's shape within

@@ -440,6 +440,28 @@ def prue():
     num("NPrLawMean", l.mean(), "%+.1f")
     m = np.array([q["oaspl"] - q["law"] for q in p])
     num("NPrLawModel", m.mean(), "%+.1f")
+    P = R("prue")
+    f = np.array(p[0]["f"])
+    b = (f >= 400) & (f <= 1000)
+    up = [float(np.mean(np.array(q["total"])[b] - np.array(q["model"])[b])) for q in p]
+    num("NWhLo", min(up), "%.0f")
+    num("NWhHi", max(up), "%.0f")
+    num("NWhFLo", round(float(f[int(np.argmax(p[0]["wheels"]))]), -2), "%.0f")
+    num("NWhFHi", round(float(f[int(np.argmax(p[-1]["wheels"]))]), -2), "%.0f")
+    e = np.concatenate([np.array(q["wheels"]) - np.array(q["test"]) for q in P["cessna"]])
+    num("NWhCeLo", float(-e.max()), "%.0f")
+    num("NWhCeHi", float(-e.min()), "%.0f")
+    num("NWhInLo", float(-P["inside"][0]["under"]), "%.0f")
+    num("NWhInHi", float(-P["inside"][1]["under"]), "%.0f")
+    q0, q2 = p[0], p[-1]
+    i400 = int(np.argmin(np.abs(f - 400)))
+    t400 = float(np.interp(np.log(400), np.log(q0["test_f"]), q0["test"]))
+    num("NWhVsPrue", float(q0["total"][i400]) - t400, "%.0f")
+    A = R("ask21")
+    k = int(np.argmin(np.abs(np.array(A["fc"]) - 200)))
+    low = [float(q["rec"][k] - q["mod"][k]) for q in A["shapes"]]
+    num("NWhRecLo", low[0], "%.0f")
+    num("NWhRecHi", low[-1], "%.0f")
 
 
 def core():
@@ -557,6 +579,33 @@ def ask21():
     num("NAsLevelHi", d[120.0], "%.0f")
 
 
+def roar():
+    r = R("roar")
+    f = np.array(r["fc"])
+    low = f <= 130
+    fl = np.array(r["floor"])[low]
+    num("NRoFloorLo", float(fl.min()), "%.0f")
+    num("NRoFloorHi", float(fl.max()), "%.0f")
+    k = np.isin(np.round(f), (32, 40, 79))
+    num("NRoFlat", float(np.abs(np.array(r["fast"]) - np.array(r["stall"]))[k].max()), "%.0f")
+    o = (f >= 120) & (f <= 260)
+    d = (np.array(r["flow"]) - np.array(r["model"]))[o]
+    num("NRoOverLo", float(d.min()), "%.0f")
+    num("NRoOverHi", float(d.max()), "%.0f")
+    a = R("ask21")
+    fc = np.array(a["fc"])
+    s = (fc >= 120) & (fc <= 330)
+    e = [float(np.sqrt(np.mean((np.array(q["rec"])[s] - np.array(q["mod"])[s]) ** 2))) for q in a["shapes"]]
+    num("NRoFitLo", min(e))
+    num("NRoFitHi", max(e))
+    w = [q["rms_without"] for q in r["roll"]]
+    v = [q["rms_with"] for q in r["roll"]]
+    num("NRoRollWithoutLo", min(w), "%.0f")
+    num("NRoRollWithoutHi", max(w), "%.0f")
+    num("NRoRollWithLo", min(v), "%.0f")
+    num("NRoRollWithHi", max(v), "%.0f")
+
+
 def bench():
     b = R("bench")
     txt = "\n".join(b["lines"])
@@ -593,7 +642,7 @@ def before_after():
 
 if __name__ == "__main__":
     os.makedirs(TAB, exist_ok=True)
-    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, bench, before_after):
+    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, bench, before_after):
         try:
             fn()
         except (FileNotFoundError, KeyError) as e:

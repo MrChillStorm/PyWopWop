@@ -430,6 +430,7 @@ def flight():
     ax = axs[1]
     for q, c in zip(p, ("#2166ac", "#1b7837", C_MOD)):
         ax.semilogx(q["f"], q["model"], "-", color=c, lw=0.9, label="%.0f kt" % q["kt"])
+        ax.semilogx(q["f"], q["total"], "--", color=c, lw=0.7)
         ax.plot(q["test_f"], q["test"], "o", mfc="none", mec=c, ms=3.4, mew=0.8, ls="none")
     ax.set_xlim(150, 7000)
     ax.set_xticks([200, 500, 1000, 2000, 5000], ["200", "500", "1000", "2000", "5000"])

@@ -2,6 +2,8 @@
 
 A glider has no engine; what is heard is the air. Its sources here:
 
+- The wheels that don't retract: Fink's landing gear method, as ANOPP has it.
+- The cockpit's low roar: measured from recordings, what follows the airspeed there and the rest doesn't reach.
 - The wing's and tail's self-noise (BPM): the turbulent boundary layer passing the trailing edge, the separating
   flow as the stall nears, laminar vortex shedding where the pressure side stays laminar to the trailing edge. The
   boundary layers are the real sections' (FX S 02-196, FX 60-126, FX 71-L-150): their displacement thicknesses at
@@ -76,6 +78,8 @@ class Glider:
     description: str = ""
     cg_x: float = None                  # centre of gravity, m aft of the datum
     ailerons: dict = None
+    wheels: list = None                 # fixed wheels: x, diameter, exposed (m below the belly)
+    roar: dict = None                   # the cockpit's measured low roar: kt, exponent, hz, db
 
     def chord(self, y):
         return np.interp(np.abs(y), self.wing["y"], self.wing["chord"])
@@ -97,7 +101,8 @@ def load_glider(name_or_path):
         d = tomllib.load(f)
     g = dict(d["glider"])
     return Glider(**g, wing=d["wing"], airbrakes=d["airbrakes"], tailplane=d["tailplane"], fin=d["fin"],
-                  fuselage=d["fuselage"], cockpit=d["cockpit"], ailerons=d.get("ailerons", {}))
+                  fuselage=d["fuselage"], cockpit=d["cockpit"], ailerons=d.get("ailerons", {}), wheels=d.get("wheels", []),
+                  roar=d.get("cockpit_roar"))
 
 
 def to_body(X, Y, Z):
@@ -739,11 +744,45 @@ def _mass_law(f, m):
     return 10.0 ** (-tl / 10.0)
 
 
+def fink_wheel(d, V, r, atm):
+    """A wheel of diameter d (m) at airspeed V, heard along r (m, x forward): mean-square pressure per third-octave
+    band, Pa^2, by Fink's method for a one- or two-wheel gear (NASA TM-83199 part 2, section 8.8, eqs 1, 20, 23, 25)."""
+    M = V / atm.c
+    rn = float(np.linalg.norm(r))
+    ct = float(r[0]) / rn
+    dop = 1.0 - M * ct
+    S = BANDS * d * dop / (M * atm.c)
+    F = 13.59 * S ** 2 * (12.5 + S ** 2) ** -2.25
+    return (atm.rho * atm.c ** 2) ** 2 * 4.349e-4 * M ** 6 * d ** 2 * 1.5 * (1.0 - ct ** 2) * F / (4.0 * np.pi * rn ** 2 * dop ** 4)
+
+
+def wheel_noise(g, V, listener, atm):
+    """The wheels that do not retract. One standing h out of the belly is, with its image in the belly, a body 2h tall
+    (no taller than the wheel): Fink's wheel of that size below the belly; above it, without the image, 6 dB less."""
+    out = np.zeros(len(BANDS))
+    fu = g.fuselage
+    for w in g.wheels or ():
+        r = np.asarray(listener, float) - to_body(w["x"], 0.0, float(np.interp(w["x"], fu["x"], fu["bottom_z"])))
+        out = out + fink_wheel(min(2.0 * w["exposed"], w["diameter"]), V, r, atm) * (0.25 if r[2] > 0.0 else 1.0)
+    return out
+
+
+def cockpit_roar(g, V, atm):
+    """The cockpit's low roar, what recordings hold there that follows the airspeed and these sources don't reach:
+    the preset's bands (dB at its speed) growing as the speed to its exponent, the air's density squared."""
+    r = g.roar
+    if not r or V <= 0:
+        return np.zeros(len(BANDS))
+    L = np.interp(np.log(BANDS), np.log(r["hz"]), r["db"])
+    k = r["exponent"] * np.log10(V / (r["kt"] * 0.514444)) + 2.0 * np.log10(atm.rho / 1.225)
+    return np.where((BANDS > 0.95 * r["hz"][0]) & (BANDS < 1.05 * r["hz"][-1]), 4e-10 * 10.0 ** (0.1 * L + k), 0.0)
+
+
 def spectra(g, cond, listener, inside=False):
     """Mean-square pressure per third-octave band (Pa^2) at the listener (aircraft frame, m), per source:
-    'airframe' (wing and tail self-noise and turbulent inflow), 'brakes' (what the opened brakes add), 'ailerons'
-    (what the deflected ailerons and the roll add; with the aileron deflected), 'wind' (the canopy's boundary layer;
-    inside only). inside: the listener sits under the canopy (its mass law applies to the
+    'airframe' (wing and tail self-noise, turbulent inflow and the fixed wheels), 'brakes' (what the opened brakes add), 'ailerons'
+    (what the deflected ailerons and the roll add; with the aileron deflected), 'wind' (the canopy's boundary layer
+    and the measured low roar; inside only). inside: the listener sits under the canopy (its mass law applies to the
     sound from outside). Also returns the state: body angle of attack, lift coefficient, the span's share stalled,
     the chord's share separated (the span's mean), and inside the canopy's share (as heard) under separated flow."""
     atm = Atmosphere(cond.altitude_m)
@@ -826,6 +865,7 @@ def spectra(g, cond, listener, inside=False):
             Dl = (rbh @ s.normal) ** 2 + 0.05
             pl = Lb * 0.5 * s.chord * fs ** 2 * Fl ** 2 * Dl / (4.0 * c0 ** 2 * rbn ** 2)
             brakes += pl * _band_power(lambda f: shape(f) / norm)
+    air = air + wheel_noise(g, V, L, atm)
     out = dict(airframe=air, brakes=brakes)
     if cond.aileron != 0.0:
         # what the deflected ailerons and the roll add: the airframe's sound over the same glider's without them
@@ -838,7 +878,7 @@ def spectra(g, cond, listener, inside=False):
         # the canopy's own boundary layer, on the fuselage's flow at the body's angle (the wing's own included:
         # its induced angle, CL / (pi AR), on the root section's)
         wind, shared = canopy_wind(g, V, info["alpha_geo"], CL, atm, to_body(*L), info["sideslip_deg"])
-        out["wind"] = wind * T
+        out["wind"] = wind * T + cockpit_roar(g, V, atm)
         cstate = dict(canopy_separated=shared)
     elif inside:
         T = _mass_law(BANDS, g.fuselage["canopy_surface_mass"])
@@ -853,7 +893,7 @@ def spectra(g, cond, listener, inside=False):
         D = fu.get("canopy_youngs", 3.2e9) * fu.get("canopy_thickness", 0.003) ** 3 / (12.0 * (1.0 - 0.37 ** 2))
         f_ac = (0.7 * Uc) ** 2 * np.sqrt(fu["canopy_surface_mass"] / D) / (2.0 * np.pi)
         cpl = lambda f: (f / f_ac) ** 2 / (1.0 + (f / f_ac) ** 2)
-        out["wind"] = _band_power(lambda f: wall_pressure_psd(f, Uc, run, atm) * cpl(f)) * T
+        out["wind"] = _band_power(lambda f: wall_pressure_psd(f, Uc, run, atm) * cpl(f)) * T + cockpit_roar(g, V, atm)
     wing_span = sum(s.span for s in wing)
     state = dict(CL=CL, alpha_body=info["alpha_body"], stalled_share=stalled_span / wing_span,
                  separated_share=separated / wing_span, roll_rate_dps=info["roll_rate_dps"],

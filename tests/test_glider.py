@@ -1,7 +1,9 @@
 """The glider model: lift, stall, the airbrakes' scaling, the loops' power and the FlightGear section."""
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from pywopwop import glider as gl
 from pywopwop.model import STANDARD_OBSERVERS
@@ -156,7 +158,10 @@ def test_inverted_flight():
     up, _ = gl.spectra(g, gl.GliderCondition(airspeed_kt=60), front, True)
     inv, _ = gl.spectra(g, gl.GliderCondition(airspeed_kt=60, load_factor=-1.0), front, True)
     lo = gl.BANDS < 300
-    assert np.sum(inv["wind"][lo]) < 0.8 * np.sum(up["wind"][lo])      # the windward canopy's thinner layer
+    # the windward canopy's thinner layer, without the measured roar that follows the airspeed alone
+    up0, inv0 = (up["wind"] - gl.cockpit_roar(g, gl.GliderCondition(airspeed_kt=60).V, gl.Atmosphere(0.0)),
+                 inv["wind"] - gl.cockpit_roar(g, gl.GliderCondition(airspeed_kt=60).V, gl.Atmosphere(0.0)))
+    assert np.sum(inv0[lo]) < 0.8 * np.sum(up0[lo])
     files = [dict(file=f"{c}_side_{s}.wav", condition=c, observer="side", source=s, airspeed_kt=v, load_factor=n)
              for c, v, n in (("60kt", 60.0, 1.0), ("stall", 33.7, 1.0), ("inv_60kt", 60.0, -1.0),
                              ("stall_inv", 45.2, -1.0)) for s in ("airframe", "wind")]
@@ -189,3 +194,40 @@ def test_slip_turns_the_canopy_flow():
     vol = {s.find("name").text: ET.tostring(s.find("volume")).decode()
            for s in ET.fromstring(gl.flightgear_glider_xml(m)).find("fx")}
     assert all("side-slip-deg" in vol[f"pww-{n}-cockpit-wind"] for n in ("60kt", "slip_60kt"))
+
+
+def test_fixed_wheels():
+    """Fink's wheel: its spectrum sums to one over the third octaves, it grows as M^6, and the ASK 21's wheels lead outside
+    near their peak but not in the cockpit"""
+    from pywopwop.atmosphere import Atmosphere
+    from pywopwop.glider import BANDS, GliderCondition, fink_wheel, load_glider, spectra, to_body, wheel_noise
+    atm = Atmosphere(0.0)
+    r = np.array([0.0, 0.0, -100.0])
+    p = fink_wheel(0.4, 50.0, r, atm)
+    M = 50.0 / atm.c
+    full = (atm.rho * atm.c ** 2) ** 2 * 4.349e-4 * M ** 6 * 0.16 * 1.5 / (4.0 * np.pi * 1e4)
+    assert p.sum() == pytest.approx(full, rel=0.02)
+    assert fink_wheel(0.4, 100.0, r, atm).sum() / p.sum() == pytest.approx(2.0 ** 6, rel=0.02)
+    g = load_glider("ask21")
+    c = GliderCondition(airspeed_kt=80.0)
+    w = wheel_noise(g, c.V, r, atm)
+    sp = spectra(g, c, r)[0]["airframe"]
+    k = int(np.argmin(np.abs(BANDS - 630.0)))
+    assert w[k] > 0.5 * sp[k]
+    head = to_body(*g.cockpit["front"])
+    inside = spectra(g, c, head, inside=True)[0]
+    assert inside["airframe"][k] < 0.1 * inside["wind"][k]
+
+
+def test_cockpit_roar():
+    """The measured roar: low bands only, as the cube of the speed, in the cockpit and not outside"""
+    g = gl.load_glider("ask21")
+    atm = gl.Atmosphere(0.0)
+    a, b = gl.cockpit_roar(g, 30.0, atm), gl.cockpit_roar(g, 60.0, atm)
+    k = int(np.argmin(np.abs(gl.BANDS - 200.0)))
+    assert b[k] / a[k] == pytest.approx(8.0, rel=1e-6)
+    assert np.all(a[gl.BANDS > 400.0] == 0.0) and np.all(a[gl.BANDS < 45.0] == 0.0)
+    head = gl.to_body(*g.cockpit["front"])
+    c = gl.GliderCondition(airspeed_kt=60.0)
+    assert gl.spectra(g, c, head, inside=True)[0]["wind"][k] > 2.0 * gl.spectra(replace(g, roar=None), c, head, inside=True)[0]["wind"][k]
+    assert "wind" not in gl.spectra(g, c, np.array([0.0, 0.0, -100.0]))[0]

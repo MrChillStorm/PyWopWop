@@ -82,6 +82,36 @@ canopy_surface_mass = 3.6       # kg/m2: 3 mm acrylic
 canopy_thickness = 0.003
 canopy_youngs = 3.2e9           # Pa, acrylic
 
+# The wheels don't retract. Where they stand and how far they stand out of the belly: the JSBSim model's contact points
+# against the contours above. The main tyre is a 5.00-5; the others' diameters are estimates
+[[wheels]]
+name = "main"
+x = 0.626
+diameter = 0.355
+exposed = 0.123
+
+[[wheels]]
+name = "nose"
+x = -1.660
+diameter = 0.28
+exposed = 0.087
+
+[[wheels]]
+name = "tail"
+x = 5.238
+diameter = 0.21
+exposed = 0.118
+
+# The cockpit's low roar, measured (report/mkresults.py, stage roar): what a front-seat recording holds that follows the
+# airspeed, about as its cube, over what the model has without it, the recording set to the model's 1-4 kHz. Where the
+# recording doesn't follow the airspeed (32, 40, 79 Hz) there is nothing: a floor as strong at a stall turn is left out.
+# Its source isn't known: the wheel on the shell under the seat, the fuselage's skin
+[cockpit_roar]
+kt = 100.0
+exponent = 3.0
+hz = [50.0, 63.0, 79.0, 100.0, 126.0, 158.0, 200.0, 251.0, 316.0]
+db = [89.5, 92.2, 60.0, 75.5, 83.8, 82.9, 84.4, 81.0, 76.0]
+
 [cockpit]
 front = [-1.217, 0.0, 0.20]     # the front pilot's head (AFFTC arm 47.91 in ahead of the datum)
 rear = [-0.080, 0.0, 0.30]      # the rear pilot's head (3.15 in ahead)
