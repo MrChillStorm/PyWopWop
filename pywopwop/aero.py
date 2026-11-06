@@ -698,22 +698,27 @@ def wagner_filter(dalpha, UT, chord, mach, omega, revs=3):
     dt = 2.0 * np.pi / npsi / omega
     beta2 = np.maximum(1.0 - np.minimum(mach, 0.95) ** 2, 0.1)
     ds = 2.0 * np.abs(UT) * dt / chord[None, :]
-    A = (0.165, 0.335)
-    b = (0.0455, 0.3)
-    X = [np.zeros(dalpha.shape[1]) for _ in A]
-    prev = dalpha[-1].copy()
+    q = beta2 * ds
+    return _wagner_steps(dalpha, np.exp(-0.0455 * q), np.exp(-0.3 * q), np.exp(-0.0455 * q / 2.0), np.exp(-0.3 * q / 2.0), revs)
+
+
+@njit(fastmath=True, cache=True)
+def _wagner_steps(dalpha, e0, e1, h0, h1, revs):
+    """wagner_filter's two lag states, stepped round the azimuth to their periodic state; e: a step's decay, h: half of it"""
+    npsi, nr = dalpha.shape
     out = np.zeros_like(dalpha)
-    for rev in range(revs):
-        for j in range(npsi):
-            d = dalpha[j] - prev
-            eff = dalpha[j].copy()
-            for k in range(2):
-                e = np.exp(-b[k] * beta2[j] * ds[j])
-                X[k] = X[k] * e + A[k] * d * np.exp(-b[k] * beta2[j] * ds[j] / 2.0)
-                eff -= X[k]
-            prev = dalpha[j]
-            if rev == revs - 1:
-                out[j] = eff
+    for i in range(nr):
+        x0 = 0.0
+        x1 = 0.0
+        prev = dalpha[npsi - 1, i]
+        for rev in range(revs):
+            for j in range(npsi):
+                a = dalpha[j, i]
+                d = a - prev
+                x0 = x0 * e0[j, i] + 0.165 * d * h0[j, i]
+                x1 = x1 * e1[j, i] + 0.335 * d * h1[j, i]
+                prev = a
+                out[j, i] = a - x0 - x1
     return out
 
 
@@ -953,10 +958,20 @@ def gust_field(bm, rng, rms, scale, n_modes=256):
     tau = bm.psi / bm.omega
     X = bm.r[None, :] * bm.cos - bm.mu_x * bm.vtip * tau[:, None]
     Y = bm.r[None, :] * bm.sin
+    return _gust_modes(X, Y, amp, k, np.cos(th), np.sin(th), ph) * rms / np.sqrt(0.5 * np.sum(amp ** 2))
+
+
+@njit(parallel=True, fastmath=True, cache=True)
+def _gust_modes(X, Y, amp, k, cos_th, sin_th, ph):
     w = np.zeros_like(X)
-    for i in range(n_modes):
-        w += amp[i] * np.cos(k[i] * (np.cos(th[i]) * X + np.sin(th[i]) * Y) + ph[i])
-    return w * rms / np.sqrt(0.5 * np.sum(amp ** 2))
+    for i in prange(X.shape[0]):
+        for j in range(X.shape[1]):
+            x, y = X[i, j], Y[i, j]
+            s = 0.0
+            for q in range(amp.shape[0]):
+                s += amp[q] * np.cos(k[q] * (cos_th[q] * x + sin_th[q] * y) + ph[q])
+            w[i, j] = s
+    return w
 
 
 def load_variants(aero, n=8, gust_rms=1.0, gust_scale=20.0, wander_chords=0.25, strength_rms=0.1, seed=1):

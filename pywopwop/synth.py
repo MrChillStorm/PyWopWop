@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 import scipy.fft as sfft
+from numba import njit, prange
 
 from . import broadband, f1a
 from .atmosphere import iso9613_alpha
@@ -86,6 +87,7 @@ class RotorSound:
     H_var: np.ndarray = None        # (variants, harmonics): loading of revolutions with gusts and vortex wander
     H_var_base: np.ndarray = None   # the same without the blade-vortex interaction
     index_deg: float = 0.0          # the rotor's blades behind the first rotor's (Rotor.index_deg)
+    near: tuple = None              # on a wall: the near-field terms of H_thickness, H_loading, H_loading_base
 
 
 @dataclass
@@ -105,6 +107,49 @@ class Render:
         for k, x in self.signals.items():
             out[k] = dict(oaspl=_db(np.mean(x ** 2)), dba=_db(a_weighted_ms(x, self.fs)))
         return out
+
+
+@njit(parallel=True, cache=True)
+def _cubic(y, step, offset, scale, out):
+    """Catmull-Rom interpolation of the periodic y at the positions (n step + offset[n]) scale, into out."""
+    N = y.shape[0]
+    for n in prange(out.shape[0]):
+        pos = (n * step + offset[n]) * scale
+        i = int(np.floor(pos))
+        u = pos - i
+        p0, p1, p2, p3 = y[(i - 1) % N], y[i % N], y[(i + 1) % N], y[(i + 2) % N]
+        out[n] = p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)))
+    return out
+
+
+@njit(parallel=True, cache=True)
+def _add_morphed(xl, xs, W, offset, xv, xb, mb):
+    """One blade morphing from one computed revolution to another, passage by passage: xl += its variants xv in the mix of
+    each revolution W (revolutions, variants), cross-faded with a raised cosine over each one, times mb; xs likewise, the
+    impulsive part (xb: the variants without it). offset (revolutions) staggers the blades; periodic over the loop."""
+    L = xl.shape[0]
+    n_rev = W.shape[0]
+    for n in prange(L):
+        u = n * n_rev / L - offset
+        k0 = int(np.floor(u))
+        sm = 0.5 - 0.5 * np.cos(np.pi * (u - k0))
+        a, b = W[k0 % n_rev], W[(k0 + 1) % n_rev]
+        p = xl[n]
+        q = xs[n]
+        for v in range(xv.shape[0]):
+            w = (1.0 - sm) * a[v] + sm * b[v]
+            p += w * xv[v, n] * mb[n]
+            if xb.shape[0]:
+                q += w * (xv[v, n] - xb[v, n]) * mb[n]
+        xl[n] = p
+        xs[n] = q
+
+
+@njit(parallel=True, cache=True)
+def _add_band(out, x, rms, at, past, env, slope):
+    """out += x / rms times the square root of the envelope: env at the indices `at`, plus its slope times what is `past` them"""
+    for i in prange(out.shape[0]):
+        out[i] += x[i] / rms * np.sqrt(max(slope[at[i]] * past[i] + env[at[i]], 0.0))
 
 
 def _rfft(x, *a, **k):
@@ -147,14 +192,23 @@ def rotor_sound(point, observer_h, quality="normal", broadband_opts=None, with_b
                                        fs_target=q.fs_source)
     src = cache[key]
     o = point.to_rotor(observer_h)
-    Ht, Hl, n = f1a.single_blade_harmonics(src, o)
+    near = None
+    if on_wall:
+        Ht, Hl, n, Ht_n, Hl_n = f1a.harmonics_with_near(src, o)
+        near = (Ht_n, Hl_n, None)
+    else:
+        Ht, Hl, n = f1a.single_blade_harmonics(src, o)
     Hb = None
     if point.aero.fz_base is not None:
         kb = (key, "base")
         if kb not in cache:
             cache[kb] = f1a.build_sources(point, n_psi=src.n_psi, chord_points=q.chord_points, thickness=False,
                                           loads="base")
-        _, Hb, _ = f1a.single_blade_harmonics(cache[kb], o, n)
+        if on_wall:
+            _, Hb, _, _, Hb_n = f1a.harmonics_with_near(cache[kb], o, n)
+            near = (Ht_n, Hl_n, Hb_n)
+        else:
+            _, Hb, _ = f1a.single_blade_harmonics(cache[kb], o, n)
     Hv = Hvb = None
     var = variability
     # near the ground the rotor also meets its own recirculating downwash: larger eddies, of about half a radius
@@ -167,12 +221,8 @@ def rotor_sound(point, observer_h, quality="normal", broadband_opts=None, with_b
             scale = (var.gust_rms ** 2 * var.gust_scale + rec ** 2 * 0.5 * R) / max(g2, 1e-12)
             V = load_variants(point.aero, var.variants, np.sqrt(g2), scale, var.wake_wander_chords,
                               var.vortex_strength_rms, seed=var.seed + 101)
-            cache[kv] = [(f1a.build_sources(point, n_psi=src.n_psi, chord_points=q.chord_points, thickness=False,
-                                            loads=(v["ft"], v["fz"])),
-                          f1a.build_sources(point, n_psi=src.n_psi, chord_points=q.chord_points, thickness=False,
-                                            loads=(v["ft_base"], v["fz_base"]))) for v in V]
-        Hv = np.array([f1a.single_blade_harmonics(a, o, n)[1] for a, _ in cache[kv]])
-        Hvb = np.array([f1a.single_blade_harmonics(b, o, n)[1] for _, b in cache[kv]])
+            cache[kv] = f1a.load_sets(src, [(v["ft"], v["fz"]) for v in V] + [(v["ft_base"], v["fz_base"]) for v in V])
+        Hv, Hvb = np.split(f1a.loading_harmonics(cache[kv], o, n), 2)
     # a wing behind the disc: its unsteady lift under the blade's vortices, part of the blade's loading
     wl = cache.get((key, "wing"))
     if wl is not None:
@@ -192,7 +242,7 @@ def rotor_sound(point, observer_h, quality="normal", broadband_opts=None, with_b
                          turbulence_scale=(bo.turbulence_ms ** 2 * bo.turbulence_scale + rec ** 2 * 0.3 * R) / t2)
         hist = broadband.spectral_history(point, o, bo)
     return RotorSound(point.rotor.name, point.rotor.blades, point.aero.omega / (2.0 * np.pi), Ht, Hl, n, hist,
-                      float(np.linalg.norm(o)), Hb, point.rotor.role, Hv, Hvb, point.rotor.index_deg)
+                      float(np.linalg.norm(o)), Hb, point.rotor.role, Hv, Hvb, point.rotor.index_deg, near)
 
 
 def modal_response(name, seed, n, fade):
@@ -235,8 +285,6 @@ def wall_field(point, listener_h, walls_h, areas, quality="normal", broadband_op
             comp = np.maximum(cabin.tau(f), 1e-300)
             snd_g = cabin.tau(f) if g is None else cabin.patch_tau(f, g)
             kinds[g] = (np.sqrt(snd_g / comp), np.sqrt(cabin.near_field_share(f, V_tip, c0, g)))
-    src = cache[id(point)]
-    src_b = cache.get((id(point), "base"))
     total = float(np.sum(areas))
     loudest = np.zeros(len(areas))
     for i, (wi, ai, p) in enumerate(zip(w, areas, walls_h)):
@@ -249,10 +297,7 @@ def wall_field(point, listener_h, walls_h, areas, quality="normal", broadband_op
         delay = np.exp(-2j * np.pi * f * r / c0)
         # the patch's direct field at the listener on top of its share of the diffuse one
         g = 1.0 + (cabin.direct(f, r, ai, total) if cabin is not None else 0.0)
-        o = point.to_rotor(p)
-        Ht_n, Hl_n, _ = f1a.single_blade_harmonics(src, o, snd.n, near_only=True)
-        Hb_n = f1a.single_blade_harmonics(src_b, o, snd.n, near_only=True)[1] if src_b is not None else None
-        for k, Hn in (("H_thickness", Ht_n), ("H_loading", Hl_n), ("H_loading_base", Hb_n)):
+        for k, Hn in zip(("H_thickness", "H_loading", "H_loading_base"), snd.near):
             H = getattr(snd, k)
             if H is not None:
                 H = (H - Hn) * acoustic + Hn * near
@@ -321,16 +366,13 @@ def _slow_noise(rng, L, fs, bandwidth, n=1):
     out = np.zeros((n, L))
     if not np.any(sel):
         return out
-    pos = np.arange(L) * m / L
-    i = np.floor(pos).astype(int)
-    u = pos - i
+    still = np.zeros(L)
     for j in range(n):
         X = np.zeros(len(k), complex)
         X[sel] = rng.normal(size=sel.sum()) + 1j * rng.normal(size=sel.sum())
         y = np.fft.irfft(X, m)
-        p0, p1, p2, p3 = y[(i - 1) % m], y[i % m], y[(i + 1) % m], y[(i + 2) % m]
-        x = p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)))
-        out[j] = x / np.sqrt(np.mean(x ** 2))
+        x = _cubic(y, 1.0, still, m / L, out[j])
+        x /= np.sqrt(np.mean(x ** 2))
     return out
 
 
@@ -419,15 +461,15 @@ def synthesize(sounds, fs=48000.0, duration=15.0, variability=None, pitch_headro
             mb = track * (1.0 + fluct)
             if s.H_var is not None:
                 # the blade morphs from one computed revolution to another, passage by passage
-                w = _morph_weights(rng, len(s.H_var), n_rev, L, b / B, var.morph_concentration)
-                for v in range(len(s.H_var)):
-                    Xb = np.zeros(len(k), complex)
-                    Xb[bins] = s.H_var[v][m] * ph
-                    xv = _irfft(Xb, L)
-                    xl += w[v] * xv * mb
-                    if s.H_loading_base is not None:
-                        Xb[bins] = s.H_var_base[v][m] * ph
-                        xs += w[v] * (xv - _irfft(Xb, L)) * mb
+                W = rng.dirichlet(np.full(len(s.H_var), var.morph_concentration), size=n_rev)
+                Xb = np.zeros((len(s.H_var), len(k)), complex)
+                Xb[:, bins] = s.H_var[:, m] * ph
+                xv = _irfft(Xb, L)
+                xb = np.zeros((0, L))
+                if s.H_loading_base is not None:
+                    Xb[:, bins] = s.H_var_base[:, m] * ph
+                    xb = _irfft(Xb, L)
+                _add_morphed(xl, xs, W, b / B, xv, xb, mb)
                 continue
             Xb = np.zeros(len(k), complex)
             Xb[bins] = s.H_loading[m] * ph
@@ -465,17 +507,6 @@ def synthesize(sounds, fs=48000.0, duration=15.0, variability=None, pitch_headro
     return signals
 
 
-def _morph_weights(rng, nv, n_rev, L, offset, concentration):
-    """(nv, L) weights, a partition of unity: a random mix of the variants per revolution (Dirichlet), cross-faded
-    with a raised cosine over each revolution; `offset` (revolutions) staggers the blades; periodic over the loop."""
-    W = rng.dirichlet(np.full(nv, concentration), size=n_rev)          # (n_rev, nv)
-    u = np.arange(L) * n_rev / L - offset
-    k0 = np.floor(u).astype(int)
-    f = u - k0
-    sm = 0.5 - 0.5 * np.cos(np.pi * f)
-    return ((1.0 - sm)[None, :] * W[k0 % n_rev].T + sm[None, :] * W[(k0 + 1) % n_rev].T)
-
-
 def _warp(x, warp, fs, over=4):
     """x(t + warp(t)) for a periodic band-limited x, by FFT oversampling and cubic interpolation."""
     L = len(x)
@@ -486,12 +517,7 @@ def _warp(x, warp, fs, over=4):
         xo = _irfft(Xo, L * over) * over
     else:
         xo = x
-    pos = (np.arange(L) + warp * fs) * over
-    i = np.floor(pos).astype(int)
-    u = pos - i
-    N = len(xo)
-    p0, p1, p2, p3 = xo[(i - 1) % N], xo[i % N], xo[(i + 1) % N], xo[(i + 2) % N]
-    return p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)))
+    return _cubic(xo, 1.0, warp * fs, float(over), np.empty(L))
 
 
 def _broadband(hist, L, fs, n_rev, rng, f_lim):
@@ -506,20 +532,37 @@ def _broadband(hist, L, fs, n_rev, rng, f_lim):
     nb = np.round(3.0 * np.log2(hist.f / 1000.0))
     out = np.zeros(L)
     lim = _band_limit(k, f_lim) * (k < f_lim)
+    tm = t % T
+    at = np.clip(np.searchsorted(tt, tm, side="right") - 1, 0, len(tt) - 2)
+    past = tm - tt[at]
+    rows, bands = [], []
+
+    def flush():
+        """a few bands' transforms at a time, in parallel"""
+        for x, b in zip(_irfft(np.array(rows), L), bands):
+            rms = np.sqrt(np.mean(x ** 2))
+            if rms > 0:
+                env = np.concatenate([hist.msp[:, b]] * 3)
+                _add_band(out, x, rms, at, past, env, np.diff(env) / np.diff(tt))
+        rows.clear()
+        bands.clear()
     for b, fb in enumerate(hist.f):
         if fb > f_lim:
             break
-        w = np.cos(0.5 * np.pi * np.clip(u - nb[b], -1.0, 1.0)) * lim
+        i0, i1 = np.searchsorted(u, nb[b] - 1.0), np.searchsorted(u, nb[b] + 1.0)
+        i0 = max(i0, 1)
+        w = np.cos(0.5 * np.pi * (u[i0:i1] - nb[b])) * lim[i0:i1]
         if not np.any(w > 0):
             continue
-        X = (rng.normal(size=len(k)) + 1j * rng.normal(size=len(k))) * w
-        X[0] = 0.0
-        x = _irfft(X, L)
-        rms = np.sqrt(np.mean(x ** 2))
-        if rms == 0:
-            continue
-        env2 = np.interp(t % T, tt, np.concatenate([hist.msp[:, b]] * 3))
-        out += x / rms * np.sqrt(np.maximum(env2, 0.0))
+        re, im = rng.normal(size=len(k)), rng.normal(size=len(k))      # the whole spectrum's: the same stream as ever
+        X = np.zeros(len(k), complex)
+        X[i0:i1] = (re[i0:i1] + 1j * im[i0:i1]) * w
+        rows.append(X)
+        bands.append(b)
+        if len(rows) == 8:
+            flush()
+    if rows:
+        flush()
     return out
 
 
@@ -542,17 +585,27 @@ def scintillate(x, fs, distance, var, rng, cache=None):
             bands.append((b, delay, 10.0 ** (level / 20.0)))
         cache["bands"] = bands
     X = _rfft(x)
-    f = np.fft.rfftfreq(L, 1.0 / fs)
-    with np.errstate(divide="ignore"):
-        u = np.log2(np.maximum(f, 1e-9) / 1000.0)            # octaves from 1 kHz
+    if "split" not in cache:                                 # each octave's share of the spectrum
+        f = np.fft.rfftfreq(L, 1.0 / fs)
+        with np.errstate(divide="ignore"):
+            u = np.log2(np.maximum(f, 1e-9) / 1000.0)        # octaves from 1 kHz
+        split = []
+        for b, _, _ in cache["bands"]:
+            i0 = 0 if b == -5 else int(np.searchsorted(u, b - 1.0))
+            i1 = len(u) if b == 4 else int(np.searchsorted(u, b + 1.0))
+            w = np.cos(0.5 * np.pi * np.clip(u[i0:i1] - b, -1.0, 1.0))
+            if b == -5:
+                w[u[i0:i1] < -5] = 1.0
+            if b == 4:
+                w[u[i0:i1] > 4] = 1.0
+            split.append((i0, i1, w))
+        cache["split"] = split
+    Y = np.zeros((len(cache["bands"]), len(X)), complex)
+    for row, (i0, i1, w) in zip(Y, cache["split"]):
+        row[i0:i1] = X[i0:i1] * w
+    xs = _irfft(Y, L)
     out = np.zeros(L)
-    for b, delay, gain in cache["bands"]:
-        w = np.cos(0.5 * np.pi * np.clip(u - b, -1.0, 1.0))
-        if b == -5:
-            w[u < -5] = 1.0
-        if b == 4:
-            w[u > 4] = 1.0
-        xb = _irfft(X * w, L)
+    for xb, (b, delay, gain) in zip(xs, cache["bands"]):
         out += _warp(xb, delay, fs, over=2 if b >= 2 else 1) * gain
     return out
 

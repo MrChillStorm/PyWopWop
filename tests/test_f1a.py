@@ -196,3 +196,23 @@ def test_near_field_terms_fade_with_distance():
         Htn, Hln, _ = f1a.single_blade_harmonics(src, o, near_only=True)
         share.append(np.abs(Htn + Hln)[m].sum() / np.abs(Ht + Hl)[m].sum())
     assert share[0] > 0.3 and share[1] < 0.05
+    both = f1a.harmonics_with_near(src, o)                      # the whole and the near field from one pass
+    for a, b in zip(both, (Ht, Hl, n, Htn, Hln)):
+        assert np.allclose(a, b, rtol=1e-9, atol=1e-9 * np.max(np.abs(Hl)))
+
+
+def test_load_sets_match_one_at_a_time():
+    """Many sets of loads at once give what each gives alone: the geometry is shared and the pressure linear in the loads"""
+    from pywopwop.model import load_aircraft, FlightCondition
+    from pywopwop.operating import operate
+    from pywopwop.aero import AeroOptions
+    p = operate(load_aircraft("uh60a"), FlightCondition(airspeed_kt=80.0), AeroOptions(n_radial=16, n_azimuth=180)).points[0]
+    src = f1a.build_sources(p, chord_points=2, thickness=False, fs_target=24000.0)
+    a = p.aero
+    loads = [(a.ft, a.fz), (1.5 * a.ft, 0.5 * a.fz), (a.fz, a.ft)]
+    o = p.to_rotor(np.array([60.0, -40.0, -30.0]))
+    H = f1a.loading_harmonics(f1a.load_sets(src, loads), o)
+    for h, (ft, fz) in zip(H, loads):
+        one = f1a.build_sources(p, n_psi=src.n_psi, chord_points=2, thickness=False, loads=(ft, fz))
+        ref = f1a.single_blade_harmonics(one, o)[1]
+        assert np.max(np.abs(h - ref)) < 1e-9 * np.max(np.abs(ref))
