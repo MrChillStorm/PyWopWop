@@ -470,6 +470,44 @@ def combustion():
     save(fig, "combustion")
 
 
+def slip():
+    s = res("slip")
+    fig, axs = plt.subplots(1, 3, figsize=(W2, 2.05))
+    f = np.array(s["fc"])
+    k = (f >= 24) & (f <= 8000)
+    tick = lambda ax: (ax.set_xticks([30, 100, 300, 1000, 3000], ["30", "100", "300", "1k", "3k"]), ax.set_xticks([], minor=True))
+    ax = axs[0]
+    ax.semilogx(f[k], np.array(s["straight_half"])[k], "-", color=C_REF, lw=0.9, label="straight, each half")
+    ax.semilogx(f[k], np.array(s["windward"])[k], "-", color=C_OLD, lw=0.9, label="windward half")
+    ax.semilogx(f[k], np.array(s["leeward"])[k], "-", color=C_MOD, lw=0.9, label="leeward half")
+    tick(ax)
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("third octave, dB")
+    ax.legend(loc="upper right")
+    tag(ax, "a")
+    ax = axs[1]
+    r = [q for q in s["rows"] if q["kt"] == s["full_kt"]]
+    b = [q["beta"] for q in r]
+    ax.plot(b, [q["front"] for q in r], "-", color=C_MOD, lw=0.9, label="front seat")
+    ax.plot(b, [q["rear"] for q in r], "--", color=C_MOD, lw=0.9, label="rear seat")
+    ax.plot(b, [q["windward"] for q in r], "-", color=C_OLD, lw=0.9, label="front, windward half")
+    ax.set_xlabel("sideslip, deg")
+    ax.set_ylabel("dB(A)")
+    ax.legend(loc="upper left")
+    tag(ax, "b")
+    ax = axs[2]
+    ax.semilogx(f[k], np.array(s["side_straight"])[k], "-", color=C_REF, lw=0.9, label="straight")
+    ax.semilogx(f[k], np.array(s["side_slip"])[k], "-", color=C_MOD, lw=0.9, label="slip")
+    ax.semilogx(f[k], np.array(s["brakes"])[k], "--", color=C_TEST, lw=0.9, label="the brakes alone")
+    tick(ax)
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("third octave, dB")
+    ax.legend(loc="lower left")
+    tag(ax, "c")
+    fig.tight_layout(w_pad=1.0)
+    save(fig, "slip")
+
+
 def mv22():
     m = res("mv22")
     fig, axs = plt.subplots(1, 3, figsize=(W2, 2.05))
@@ -541,7 +579,7 @@ def ask21():
 
 
 ALL = dict(verify=verify, rotors=rotors, torsion=torsion, stand=stand, hart2_loads=hart2_loads, hart2_map=hart2_map, bvi=bvi, texture=texture, fountain=fountain,
-           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21)
+           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21, slip=slip)
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

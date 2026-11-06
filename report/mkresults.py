@@ -9,7 +9,7 @@ rotor's noise on NASA's test stand), hart2 (the
 HART II rotor's loads and noise), bvi (slap's level against the descent, on HART II and the UH-60A), texture (loops against recordings),
 fountain (the XV-15 over ground boards), outside (the MV-22 against the published table), engines (cycles, levels), tones (the
 engines' and gearbox's tones in UH-60 recordings), cabin (the walls), wind, mv22 (the cockpit against its recording), mv22_terms (the
-same, each physical term taken out), ask21 (the gliders' recordings), bench (timings: run on a quiet machine).
+same, each physical term taken out), ask21 (the gliders' recordings), slip (the glider slipping), bench (timings: run on a quiet machine).
 
 texture, tones, mv22 and ask21 read recordings (refs/recordings, kept out of the repository) and the FlightGear aircrafts' sounds; the
 results they leave are what the report needs, so it can be rebuilt without them."""
@@ -1287,6 +1287,53 @@ def ask21():
 
 # ---------------------------------------------------------------- timings
 
+def slip():
+    """the glider slipping: where the crossflow separates at the seats, the cockpit's halves and the outside at the angles, the wing at the
+    flight model's full slip, what Fink's strut amounts to as a cylinder's lift, and the layers' fades below the lowest loop"""
+    from scipy.optimize import brentq
+    from pywopwop.glider import (BANDS as GB, GliderCondition, crossflow_time, load_glider, low_speed_power, spectra, strip_states, strips,
+                                 to_body)
+    from pywopwop.model import Observer, STANDARD_OBSERVERS
+    from pywopwop.synth import a_weighting_db
+    g = load_glider("ask21")
+    head, rear = to_body(*g.cockpit["front"]), to_body(*g.cockpit["rear"])
+    place = lambda n: Observer(n, STANDARD_OBSERVERS[n].azimuth_deg, STANDARD_OBSERVERS[n].elevation_deg, 30.0).offset()
+    side, below = place("side"), place("below")
+    wa = 10.0 ** (a_weighting_db(GB) / 10.0)
+    dbA = lambda p: float(10 * np.log10(np.sum(p * wa) / 4e-10))
+    oa = lambda p: float(10 * np.log10(np.sum(p) / 4e-10))
+    hiss = (GB >= 1500) & (GB <= 6800)
+    FULL, FULL_KT = 46.0, 53.5                            # the flight model's full-rudder slip: 99 km/h
+    rows = []
+    for kt in (FULL_KT, 90.0):
+        for b in (0.0, 10.0, 15.0, 17.3, 20.0, 25.0, 30.0, 35.0, 40.0, FULL, 50.0):
+            c = GliderCondition(airspeed_kt=kt, sideslip_deg=b)
+            i, st = spectra(g, c, head, True)
+            r = spectra(g, c, rear, True)[0]
+            o, u = spectra(g, c, side)[0]["airframe"], spectra(g, c, below)[0]["airframe"]
+            rows.append(dict(kt=kt, beta=b, front=dbA(i["wind"]), windward=dbA(i["windward"]), leeward=dbA(i["leeward"]), rear=dbA(r["wind"]),
+                             front_oa=oa(i["wind"]), share=st["canopy_separated"], hiss=float(10 * np.log10(np.sum(i["wind"][hiss]) / 4e-10)),
+                             side=dbA(o), side_oa=oa(o), below=dbA(u), below_oa=oa(u)))
+    c0, c1 = GliderCondition(airspeed_kt=FULL_KT), GliderCondition(airspeed_kt=FULL_KT, sideslip_deg=FULL)
+    a, b = spectra(g, c0, head, True)[0], spectra(g, c1, head, True)[0]
+    o0, o1 = spectra(g, c0, side)[0]["airframe"], spectra(g, c1, side)[0]["airframe"]
+    u0, u1 = spectra(g, c0, below)[0]["airframe"], spectra(g, c1, below)[0]["airframe"]
+    brakes = spectra(g, GliderCondition(airspeed_kt=FULL_KT, brakes=1.0), side)[0]["brakes"]
+    S = strips(g)
+    st = strip_states(g, c1)[0]
+    w = [(s, x) for s, x in zip(S, st) if s.kind == "wing"]
+    share = lambda sign: float(sum(s.span * x["sep"] for s, x in w if s.side == sign) / sum(s.span for s, x in w if s.side == sign))
+    onset = {k: float(np.degrees(brentq(lambda t: float(crossflow_time(g, g.cockpit[k][0], np.degrees(t))) - 1.5, 0.01, 1.3)))
+             for k in ("front", "rear")}
+    db = lambda p: 10 * np.log10(np.maximum(p, 1e-30) / 4e-10)
+    dump("slip", dict(rows=rows, fc=GB, full=FULL, full_kt=FULL_KT, onset=onset, fin_balance=strip_states(g, GliderCondition(airspeed_kt=60.0, rudder=1.0))[1]["sideslip_deg"],
+                      straight_half=db(a["windward"]), windward=db(b["windward"]), leeward=db(b["leeward"]),
+                      side_straight=db(o0), side_slip=db(o1), below_straight=db(u0), below_slip=db(u1), brakes=db(brakes), side_added=db(np.maximum(o1 - o0, 0.0)),
+                      wing_windward=share(1), wing_leeward=share(-1), wing_stalled=any(x["stalled"] for s, x in w),
+                      fin_stalled=any(x["stalled"] for s, x in zip(S, st) if s.kind == "fin"),
+                      lift_rms=float(np.sqrt(16 * 3 * 2.753e-4 / (4 * np.pi * 0.2 ** 2 * 5))), power=low_speed_power(g, 40.0)))
+
+
 def bench():
     lines = []
     validation.benchmark(out=lines.append)
@@ -1302,7 +1349,7 @@ def bench():
 
 
 STAGES = dict(verify=verify, rotors=rotors, stand=stand, hart2=hart2, bvi=bvi, texture=texture, fountain=fountain, outside=outside, engines=engines, tones=tones, cabin=cabin,
-              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, bench=bench)
+              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, slip=slip, bench=bench)
 
 if __name__ == "__main__":
     import pywopwop

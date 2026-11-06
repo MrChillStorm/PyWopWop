@@ -1,4 +1,5 @@
 """The glider model: lift, stall, the airbrakes' scaling, the loops' power and the FlightGear section."""
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 
@@ -55,17 +56,19 @@ def test_band_loop_has_the_band_powers():
 def test_flightgear_section_is_well_formed():
     kt = {"40kt": 40.0, "50kt": 50.0, "stall": 33.7}
     files = [dict(file=f"{c}_{v}_{s}.wav", condition=c, observer=v, source=s, airspeed_kt=kt[c])
-             for c in ("40kt", "50kt", "stall") for v in ("cockpit", "side") for s in ("airframe", "wind", "brakes")]
+             for c in ("40kt", "50kt", "stall") for v in ("cockpit", "side")
+             for s in ("airframe", "windward", "leeward", "brakes")]
     m = dict(glider="ASK 21", stall_alpha_body_deg=10.0, speeds_kt=[40.0, 50.0], files=files)
     root = ET.fromstring(gl.flightgear_glider_xml(m))
     sounds = list(root.find("fx"))
-    assert len(sounds) == 16                          # stall: airframe and wind only
+    assert len(sounds) == 22                          # stall: airframe and the wind's halves only
     assert all(s.find("volume/expression") is not None for s in sounds)
     # the canopy's wind follows the airspeed alone, the stall's loop the lowest; the wing turns to the stall's loop
     # with the angle of attack
     vol = {s.find("name").text: ET.tostring(s.find("volume")).decode() for s in sounds}
-    assert "alpha-deg" not in vol["pww-stall-cockpit-wind"] and "airspeed-kt" in vol["pww-stall-cockpit-wind"]
-    assert "alpha-deg" not in vol["pww-40kt-cockpit-wind"]
+    assert "alpha-deg" not in vol["pww-stall-cockpit-windward-right"]
+    assert "airspeed-kt" in vol["pww-stall-cockpit-leeward-left"]
+    assert "alpha-deg" not in vol["pww-40kt-cockpit-windward-right"]
     assert "alpha-deg" in vol["pww-stall-side-airframe"] and "alpha-deg" in vol["pww-40kt-side-airframe"]
 
 
@@ -164,13 +167,14 @@ def test_inverted_flight():
     assert np.sum(inv0[lo]) < 0.8 * np.sum(up0[lo])
     files = [dict(file=f"{c}_side_{s}.wav", condition=c, observer="side", source=s, airspeed_kt=v, load_factor=n)
              for c, v, n in (("60kt", 60.0, 1.0), ("stall", 33.7, 1.0), ("inv_60kt", 60.0, -1.0),
-                             ("stall_inv", 45.2, -1.0)) for s in ("airframe", "wind")]
+                             ("stall_inv", 45.2, -1.0)) for s in ("airframe", "windward", "leeward")]
     m = dict(glider="ASK 21", stall_alpha_body_deg=12.0, separation_alpha_body_deg=4.3, speeds_kt=[60.0],
              inverted_speeds_kt=[60.0], inverted_stall_alpha_body_deg=-14.0, inverted_separation_alpha_body_deg=-11.0,
              files=files)
     vol = {s.find("name").text: ET.tostring(s.find("volume")).decode()
            for s in ET.fromstring(gl.flightgear_glider_xml(m)).find("fx")}
-    assert all("pilot-g" in vol[f"pww-{c}-side-{s}"] for c in ("60kt", "inv_60kt", "stall_inv") for s in ("airframe", "wind"))
+    assert all("pilot-g" in vol[f"pww-{c}-side-{s}"] for c in ("60kt", "inv_60kt", "stall_inv")
+               for s in ("airframe", "windward-right", "leeward-left"))
 
 
 def test_slip_turns_the_canopy_flow():
@@ -187,13 +191,191 @@ def test_slip_turns_the_canopy_flow():
     straight = gl.canopy_layers(g, c.V, info["alpha_geo"], 0.0, info["CL"], Atmosphere(0.0))
     left = straight["theta"][y < 0].mean()
     assert abs(straight["theta"][y > 0].mean() / left - 1) < 0.02     # symmetric in straight flight
-    files = [dict(file=f"{n}_cockpit_wind.wav", condition=n, observer="cockpit", source="wind", airspeed_kt=60.0)
-             for n in ("60kt", "slip_60kt")]
-    m = dict(glider="ASK 21", stall_alpha_body_deg=12.0, speeds_kt=[60.0], slip_speeds_kt=[60.0],
-             slip_sideslip_deg=17.0, files=files)
-    vol = {s.find("name").text: ET.tostring(s.find("volume")).decode()
-           for s in ET.fromstring(gl.flightgear_glider_xml(m)).find("fx")}
-    assert all("side-slip-deg" in vol[f"pww-{n}-cockpit-wind"] for n in ("60kt", "slip_60kt"))
+
+
+def slip_manifest():
+    files = [dict(file=f"{n}_cockpit_{h}.wav", condition=n, observer="cockpit", source=h, airspeed_kt=60.0)
+             for n in ("60kt", "slip25_60kt", "slip50_60kt") for h in ("windward", "leeward")]
+    files += [dict(file=f"{n}_side_airframe.wav", condition=n, observer="side", source="airframe", airspeed_kt=60.0)
+              for n in ("60kt", "slip25_60kt", "slip50_60kt")]
+    return dict(glider="ASK 21", stall_alpha_body_deg=12.0, speeds_kt=[60.0], slip_speeds_kt=[60.0],
+                slip_angles_deg=[25.0, 50.0], low_speed_power=dict(wind=3.0, airframe=6.0),
+                cockpit_sound_position=dict(x=-2.5, y=0.33, z=0.9), files=files)
+
+
+def test_flightgear_section_slips():
+    """The angles cross-fade on the sideslip's size, the sign puts each half on its side, the outside slips too"""
+    sounds = {s.find("name").text: s for s in ET.fromstring(gl.flightgear_glider_xml(slip_manifest())).find("fx")}
+    text = {k: ET.tostring(s).decode() for k, s in sounds.items()}
+    assert len(sounds) == 2 + 8 + 3
+    for n in ("pww-60kt-cockpit-windward-right", "pww-slip25_60kt-cockpit-leeward-left", "pww-slip50_60kt-side-airframe"):
+        assert "side-slip-deg" in text[n]
+    # the wind from the right (positive): windward on the right; from the left, on the left
+    for name, cmp, y in (("windward-right", "greater-than", -0.33), ("windward-left", "less-than", 0.33),
+                         ("leeward-left", "greater-than", 0.33), ("leeward-right", "less-than", -0.33)):
+        e = sounds[f"pww-slip50_60kt-cockpit-{name}"]
+        assert e.find(f"condition/and/{cmp}") is not None
+        assert float(e.find("position/y").text) == pytest.approx(y)     # FlightGear's +y is left
+    straight = sounds["pww-60kt-cockpit-windward-right"]
+    assert float(straight.find("position/y").text) < 0
+    # a looped sound holds a source while its condition is true: only inside its own fades, and all of them
+    m = slip_manifest()
+    m["files"] += [dict(file=f"{c}_{v}_{s}.wav", condition=c, observer=v, source=s, airspeed_kt=k)
+                   for c, k in (("50kt", 50.0), ("slip25_50kt", 50.0), ("slip50_50kt", 50.0)) for v in ("cockpit", "side")
+                   for s in ("windward", "leeward", "airframe")]
+    m["speeds_kt"] = m["slip_speeds_kt"] = [50.0, 60.0]
+    fx = list(ET.fromstring(gl.flightgear_glider_xml(m)).find("fx"))
+
+    def value(e, p):
+        k = list(e)
+        if e.tag == "value":
+            return float(e.text)
+        if e.tag == "property":
+            return p[e.text.lstrip("/")]
+        if e.tag == "clip":
+            v = value(next(c for c in k if c.tag not in ("clipMin", "clipMax")), p)
+            return min(max(v, float(e.find("clipMin").text)), float(e.find("clipMax").text))
+        a = [value(c, p) for c in k]
+        return dict(expression=a[0], product=float(np.prod(a)), sum=sum(a), sqrt=max(a[0], 0.0) ** 0.5, abs=abs(a[0]),
+                    difference=a[0] - sum(a[1:]))[e.tag] if e.tag != "pow" else a[0] ** a[1]
+
+    def true(e, p):
+        if e.tag in ("and", "or"):
+            return (all if e.tag == "and" else any)(true(c, p) for c in e)
+        if e.tag == "not":
+            return not true(e[0], p)
+        if e.tag == "property":
+            return bool(p[e.text.lstrip("/")])
+        a, b = value(e[0], p), value(e[1], p)
+        return a > b if e.tag == "greater-than" else a < b
+    most = 0
+    for inside in (True, False):
+        for kt in (8.0, 49.0, 50.0, 55.0, 60.0, 75.0):
+            for b in (-60.0, -30.0, -25.0, -10.0, 0.0, 10.0, 25.0, 40.0, 50.0, 60.0):
+                p = {"sim/current-view/internal": inside, "velocities/airspeed-kt": kt, "orientation/side-slip-deg": b,
+                     "orientation/alpha-deg": 3.0, "accelerations/pilot-g": 1.0, "surface-positions/speedbrake-pos-norm": 0.0,
+                     "surface-positions/left-aileron-pos-norm": 0.0}
+                on = [e for e in fx if true(e.find("condition")[0], p)]
+                most = max(most, len(on))
+                for e in fx:                              # nothing gated off would have sounded
+                    name = e.find("name").text
+                    side = name.rsplit("-", 1)[1]
+                    elsewhere = ("cockpit" in name) != inside or ("slip" in name and side in ("left", "right") and b != 0.0
+                                                                  and ("windward" in name) != (side == ("right" if b > 0 else "left")))
+                    if e not in on and not elsewhere:
+                        assert value(e.find("volume/expression"), p) < 1e-9, name
+    assert most <= 12
+    src = gl.glider_sources(m)
+    assert 0 < src["cockpit"] <= 12 and 0 < src["exterior"] <= 12
+
+
+def test_low_speed_fade():
+    """Below the lowest loop a layer's power falls as the speed to its own exponent, not as the speed"""
+    root = ET.fromstring(gl.flightgear_glider_xml(slip_manifest()))
+    s = {e.find("name").text: e for e in root.find("fx")}
+    assert s["pww-60kt-cockpit-windward-right"].find("volume/expression//pow/value").text == "1.5"
+    assert s["pww-60kt-side-airframe"].find("volume/expression//pow/value").text == "3"
+    g = gl.load_glider("ask21")
+    p = gl.low_speed_power(g, 40.0)
+    assert 2.5 < p["wind"] < 3.5 and 4.5 < p["airframe"] < 8.0 and p["slip_wind"] > p["wind"]
+
+
+def test_slip_is_a_condition_of_its_own():
+    g = gl.load_glider("ask21")
+    S = gl.strips(g)
+    root = S[0]
+    balance = gl.strip_states(g, gl.GliderCondition(airspeed_kt=60, rudder=1.0))[1]["sideslip_deg"]
+    st = lambda b, kt=60.0: gl.strip_states(g, gl.GliderCondition(airspeed_kt=kt, sideslip_deg=b))[0]
+    info = gl.strip_states(g, gl.GliderCondition(airspeed_kt=60, sideslip_deg=46.0))[1]
+    assert balance < 20.0 and info["sideslip_deg"] == 46.0
+    # the wing at V cos(sideslip): its lift coefficient up by 1 / cos^2, the windward side further by the dihedral
+    a, b = st(0.0)[0], st(46.0)[0]
+    left = next(i for i, s in enumerate(S) if s.kind == "wing" and s.side < 0)
+    assert root.side > 0 and b["cl"] > 1.5 * a["cl"] and st(46.0)[left]["alpha"] < b["alpha"] - 5.0
+    assert any(x["stalled"] for s, x in zip(S, st(46.0)) if s.kind == "fin")
+    assert not any(x["stalled"] for s, x in zip(S, st(46.0, 53.0)) if s.kind == "wing")   # the flight model's full slip
+
+
+def test_crossflow_separation_follows_the_published_lines():
+    g = gl.load_glider("ask21")
+    x, right, left, top = g.cockpit["front"][0], np.pi / 2, -np.pi / 2, 0.0
+    t = float(gl.crossflow_time(g, x, 46.0))
+    assert 2.5 < t < 5.0
+    sep = lambda p, b=46.0: bool(gl.crossflow_separated(g, x, p, 0.0, b))
+    assert sep(left) and not sep(right) and not sep(top)
+    # 151.2 t^-0.190 degrees from the windward line
+    line = np.radians(151.2 * t ** -0.190)
+    assert sep(right - line - 0.02) and not sep(right - line + 0.02)
+    assert not sep(left, 15.0) and not sep(left, 0.0)   # the front seat's station starts past 20 degrees
+    assert sep(left, 25.0)
+
+
+def test_cockpit_halves():
+    g = gl.load_glider("ask21")
+    head = gl.to_body(*g.cockpit["front"])
+    sp, _ = gl.spectra(g, gl.GliderCondition(airspeed_kt=75.0), head, True)
+    assert np.allclose(sp["windward"] + sp["leeward"], sp["wind"])
+    assert np.sum(sp["windward"]) == pytest.approx(np.sum(sp["leeward"]), rel=0.02)
+    slip, state = gl.spectra(g, gl.GliderCondition(airspeed_kt=75.0, sideslip_deg=46.0), head, True)
+    lo = (gl.BANDS > 40.0) & (gl.BANDS < 200.0)
+    assert state["canopy_separated"] > 0.15
+    assert np.sum(slip["leeward"][lo]) > 10.0 * np.sum(slip["windward"][lo])   # the separated side's rumble
+    assert np.sum(slip["wind"][lo]) > 5.0 * np.sum(sp["wind"][lo])
+    hi = gl.BANDS > 2500.0
+    assert np.sum(slip["leeward"][hi]) < np.sum(slip["windward"][hi])          # and it has lost the hiss
+
+
+def test_fuselage_across_the_flow():
+    """Fink's strut sums to one over the third octaves and grows as M^6; the fuselage's lift dipole beams up and down"""
+    atm = gl.Atmosphere(0.0)
+    r, up = np.array([0.0, 0.0, -100.0]), np.array([0.0, 0.0, 1.0])
+    p = gl.fink_strut(0.1, 2.0, 50.0, r, up, atm)
+    M = 50.0 / atm.c
+    assert p.sum() == pytest.approx((atm.rho * atm.c ** 2) ** 2 * 2.753e-4 * M ** 6 * 0.2 * 3.0 / (4.0 * np.pi * 1e4), rel=0.03)
+    assert gl.fink_strut(0.1, 2.0, 100.0, r, up, atm).sum() / p.sum() == pytest.approx(2.0 ** 6, rel=0.03)
+    g = gl.load_glider("ask21")
+    V = 40.0
+    n = lambda L, b=46.0: gl.crossflow_noise(g, V, 3.0, b, L, atm).sum()
+    assert n(np.array([0.0, 0.0, -30.0])) > 5.0 * n(np.array([0.0, -30.0, 0.0]))
+    assert n(np.array([0.0, 0.0, -30.0])) > 5.0 * n(np.array([0.0, 0.0, -30.0]), 25.0)
+    assert n(np.array([0.0, 0.0, -30.0]), 0.0) == 0.0
+
+
+def test_wakes_reach_the_leeward_strips():
+    g = gl.load_glider("ask21")
+    S = gl.strips(g)
+    wing = [s for s in S if s.kind == "wing"]
+    lee = next(s for s in wing if s.side < 0)
+    wind = next(s for s in wing if s.side > 0)
+    u, L = gl.wake_turbulence(g, lee, True, 3.0, 46.0)
+    assert 0.03 < u < 0.3 and 0.1 < L < 1.0
+    assert gl.wake_turbulence(g, wind, True, 3.0, 46.0)[0] == 0.0
+    assert gl.wake_turbulence(g, wing[-1], True, 3.0, 46.0)[0] == 0.0          # the tip is out of it
+    tail = [s for s in S if s.kind == "tailplane"]
+    lee_t = next(s for s in tail if s.side < 0)
+    assert gl.wake_turbulence(g, lee_t, True, 3.0, 46.0)[0] > 0.05             # in the stalled fin's
+    assert gl.wake_turbulence(g, lee_t, False, 3.0, 46.0)[0] == 0.0
+    assert gl.wake_turbulence(g, next(s for s in tail if s.side > 0), True, 3.0, 46.0)[0] == 0.0
+
+
+def test_glider_bank_slips(tmp_path, monkeypatch):
+    """A bank's slips: the halves in the cockpit, the airframe outside, the angle in the manifest and the section"""
+    monkeypatch.setattr(gl, "low_speed_power", lambda *a: dict(wind=3.0, airframe=6.0, brakes=7.0, ailerons=7.0))
+    g = gl.load_glider("ask21")
+    m = gl.make_glider_bank(g, tmp_path, speeds=(60.0, 90.0), views=("cockpit", "side"), duration=0.5, fs=24000.0,
+                            stall_load_factors=(1.0,), slip_angles=(25.0, 50.0), progress=lambda *_: None)
+    have = {(f["condition"], f["observer"], f["source"]): f for f in m["files"]}
+    assert ("slip50_60kt", "cockpit", "leeward") in have and ("slip50_60kt", "cockpit", "windward") in have
+    assert ("slip25_90kt", "side", "airframe") in have and have[("slip25_90kt", "side", "airframe")]["sideslip_deg"] == 25.0
+    assert ("slip50_60kt", "cockpit", "airframe") not in have and ("slip50_60kt", "cockpit", "mix") not in have
+    assert ("60kt", "cockpit", "wind") not in have and ("60kt", "cockpit", "mix") in have
+    assert m["slip_angles_deg"] == [25.0, 50.0] and m["cockpit_sound_position"]["y"] > 0.2
+    assert 0 < m["max_sources"]["cockpit"] < 40 and 0 < m["max_sources"]["exterior"] < 40
+    assert have[("slip50_60kt", "cockpit", "leeward")]["dba"] > have[("slip50_60kt", "cockpit", "windward")]["dba"] + 3.0
+    x = (tmp_path / "pywopwop-glider.xml").read_text()
+    assert ET.fromstring(x) is not None
+    for f in re.findall(r"<path>Sounds/pywopwop/([^<]+)</path>", x):
+        assert (tmp_path / f).exists()
 
 
 def test_fixed_wheels():

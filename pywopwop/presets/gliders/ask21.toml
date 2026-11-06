@@ -81,6 +81,10 @@ canopy_half_angle_deg = 70.0    # the glass wraps this far around each section f
 canopy_surface_mass = 3.6       # kg/m2: 3 mm acrylic
 canopy_thickness = 0.003
 canopy_youngs = 3.2e9           # Pa, acrylic
+shell_half_angle_deg = 135.0    # the cockpit's GRP walls below the sills, heard at the ear; the seat pan hides the floor
+shell_surface_mass = 4.0        # kg/m2: assumed, 2.5 mm of glass and epoxy
+shell_thickness = 0.0025
+shell_youngs = 2.0e10           # Pa, woven glass and epoxy
 
 # The wheels don't retract. Where they stand and how far they stand out of the belly: the JSBSim model's contact points
 # against the contours above. The main tyre is a 5.00-5; the others' diameters are estimates
@@ -110,8 +114,9 @@ exposed = 0.118
 kt = 100.0
 exponent = 3.0
 hz = [50.0, 63.0, 79.0, 100.0, 126.0, 158.0, 200.0, 251.0, 316.0]
-db = [89.5, 92.2, 60.0, 75.5, 83.8, 82.9, 84.4, 81.0, 76.0]
+db = [89.3, 92.0, 60.0, 73.4, 83.4, 82.4, 84.0, 80.4, 74.7]
 
 [cockpit]
 front = [-1.217, 0.0, 0.20]     # the front pilot's head (AFFTC arm 47.91 in ahead of the datum)
 rear = [-0.080, 0.0, 0.30]      # the rear pilot's head (3.15 in ahead)
+fg_eye = [-2.515, 0.0, 0.927]   # the FlightGear view's eye in its sound frame: x aft, y left, z up of the model's origin

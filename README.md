@@ -128,9 +128,10 @@ geometry and sections (preset: `ask21`, from the FlightGear ASK 21 JSBSim model'
 |---|---|
 | Wing and tail | BPM self-noise on the real sections' boundary layers: NeuralFoil gives each strip's trailing-edge displacement thicknesses, transition points and separated share of the chord (FX S 02-196, FX 60-126, FX 71-L-150) at its Reynolds number and angle of attack; lift along the span by Schrenk |
 | Turbulence | Amiet's inflow noise from the air's (or a thermal's) turbulence, and slow level changes as gusts move the airspeed |
-| Canopy wind | the fuselage's potential flow (a panel method on its contours, with the wing's lifting line) at the body's angle of attack and sideslip; each panel of the glass gets the boundary layer of the surface streamline that reaches it, traced back to the nose: laminar to the canopy frame and turbulent from there, thickening where the streamlines converge (the leeward side), separating where it can't stand the pressure rise; Goody's wall pressure on each panel, heard by the solid angle it fills at the ear, through the acrylic (mass law), less what a panel misses below hydrodynamic coincidence |
+| Cockpit wind | the fuselage's potential flow (a panel method on its contours, with the wing's lifting line) at the body's angle of attack and sideslip; each panel of the glass and of the shell below the sills gets the boundary layer of the surface streamline that reaches it, traced back to the nose: laminar to the canopy frame and turbulent from there, thickening where the streamlines converge (the leeward side), separating where it can't stand the pressure rise or lies past the crossflow's separation line (Lee's lines for slender bodies); Goody's wall pressure on each panel, heard by the solid angle it fills at the ear, through its wall (mass law), less what a panel misses below hydrodynamic coincidence; the left and right halves apart |
 | Airbrakes | each plate's vortex shedding and the spoiled section's unsteady lift (Curle dipoles) and its wake at the trailing edge (BPM with the plate's height as the displacement thickness): broadband, growing as the sixth power of the speed, as spoiler studies find |
 | Manoeuvres | a steady pull-up at the load factor, a steady roll at the aileron, a steady sideslip at the rudder: the ailerons (with the FDM's differential), elevator and rudder deflect the sections in NeuralFoil; the roll rate balances the wing's rolling moment, the tailplane the pitching moments about the centre of gravity (the elevator finding its lift, to its stops), the fin the fuselage's yawing moment; each deflected aileron's ends shed vortices (BPM's tip noise at the lift the deflection adds) |
+| Sideslip | set by its angle (the flight model's full rudder goes far past the fin's own balance); the wing and tail at the speed across their span, V cos(sideslip); the fuselage across the crossflow as Fink's strut, length by length; its wake on the inboard leeward wing and the stalled fin's on the leeward tailplane through Amiet's inflow noise. An estimate: no recording of a full slip has tested it |
 | Separation and stall | each section's suction side separates from the trailing edge forward as its angle grows, and BPM's separation noise follows that share instead of a NACA 0012's angle: the attached layer's hiss goes, the separated flow's rumble comes, and past the maximum lift BPM's deep stall |
 
 ```bash
@@ -145,16 +146,21 @@ The bank has 8 airspeeds from 40 to 150 kt with the brakes fully out and full ai
 stall at 1, 2, 3.5 and 5 g (an accelerated stall: at n g the wing stalls at the square root of n times the 1 g
 speed, and its separated flow is louder for the speed), and inverted at -1 g (from 1.1 times the inverted stall's
 speed, and that stall), at both seats and 4 positions outside (30 m). Layers:
-`airframe` (with the wheels that don't retract), `wind` (inside), `brakes` (what the brakes add), `ailerons` (what full aileron and its roll add), and
-`mix` (airframe and wind); the accelerated stalls have the airframe only. Slips (full rudder, about 17 degrees of
-sideslip) have the cockpit's loops. `pywopwop-glider.xml` cross-fades the
-airspeed loops by equal power on `velocities/airspeed-kt`: the canopy's wind by airspeed alone (the 1 g stall's
-loop the lowest), the wing's sound turning to the stall loops' (themselves cross-faded by airspeed) on
+`airframe` (with the wheels that don't retract), `windward` and `leeward` (inside: the flow on the cockpit's right and left halves, in straight flight two equal halves that aren't correlated), `brakes` (what the brakes add), `ailerons` (what full aileron and its roll add), and
+`mix` (airframe and both halves); the accelerated stalls have the airframe only. Slips at 15, 25, 35 and 50 degrees at
+each airspeed (`slip25_60kt`) have the wind's halves inside and the airframe outside; the manifest lists the angles in
+`slip_angles_deg` and on each slip's files in `sideslip_deg`. `pywopwop-glider.xml` cross-fades the
+airspeed loops by equal power on `velocities/airspeed-kt`: the cockpit's wind by airspeed alone (the 1 g stall's
+loop the lowest), below the lowest loop each layer falling as the speed to its own exponent (`low_speed_power` in the
+manifest), the wing's sound turning to the stall loops' (themselves cross-faded by airspeed) on
 `orientation/alpha-deg` from where its flow begins to separate to the stall; it plays the brakes' layer with the
 square root of `surface-positions/speedbrake-pos-norm` and the ailerons' with
 `surface-positions/left-aileron-pos-norm`; the inverted loops come in for the upright ones as
-`accelerations/pilot-g` goes from +1 to -1, and the slips' wind for the straight flight's as `orientation/side-slip-deg`
-grows to the full-rudder slip's.
+`accelerations/pilot-g` goes from +1 to -1. The slips' loops come in over their angles on the size of
+`orientation/side-slip-deg`, the wind's halves playing left and right of the ear (`cockpit_sound_position`), windward on
+the side the sign says: positive is the wind from the right. Each loop's condition is only true inside its own fades, since
+FlightGear has 128 sound sources for everything and a looped sound holds one while its condition is true, however silent:
+at most 23 of the section's 262 loops run at once inside and 13 outside (`max_sources` in the manifest).
 
 The computed stall speed of the ASK 21 at 540 kg is 34.7 kt, the flight manual's 35 kt. In the cockpit the canopy's
 boundary layer dominates: 76 dBA at the stall, 77 at 40 kt, 89 at 150 kt (a study of the K7's cockpit found over 75
@@ -169,11 +175,14 @@ In aerobatics the computed sound comes mostly from the airspeed and from the win
 3.5 g at 70 kt changes the airframe's sound by about 1 dB; stalled there it is 13 dB louder than the 1 g stall, 17
 dB at 5 g. Full aileron adds about 1 dB outside: the roll rate keeps the ailerons' sections near their angles, and
 what they add comes mostly from the vortices at their ends. The elevator and rudder span their surfaces and add
-little. A slip turns the flow across the canopy: on the windward side its boundary layer is thin and the flow
-slower, on the leeward side the layer gathers, two to four times thicker, and stays attached on the glass (the
-leeward separation runs below the sills); in the cockpit the hiss grows by about half a decibel, brighter on one side and
-duller on the other. Air leaking through the canopy's seals and vents, which a slip's pressure across the cockpit
-drives, is not modelled. Inverted, the cambered wing needs a large negative angle and stalls at 47 kt (35 upright); the canopy
+little. A slip turns the flow across the canopy, and a big one makes the glider fly sideways: a pilot hears it turn
+into a flying airbrake. On the windward side the boundary layer is thin, on the leeward side it gathers, and past
+the crossflow's separation line, from 14 degrees of sideslip at the rear seat and 23 at the front, the
+leeward walls lose their hiss to a roar. At the flight model's full-rudder slip, 46 degrees at 99 km/h, the front seat gains
+8 dB(A), the leeward half 9 dB(A) over the windward, most of it from 25 to 250 Hz; 30 m to the side the airframe
+gains about 1 dB(A) and 6 dB overall, underneath 5 dB(A) and 13 dB, what it adds to the side
+close to what the brakes add from 25 to 250 Hz. These levels are estimates: no recording of a full slip has tested them. Air
+leaking through the canopy's seals and vents, which a slip's pressure across the cockpit drives, is not modelled. Inverted, the cambered wing needs a large negative angle and stalls at 47 kt (35 upright); the canopy
 faces the flow instead of trailing it, its boundary layer thinner and the air over it slower, so its hiss loses
 3-5 dB of its lows at 60 kt and keeps its highs: thinner, brighter. Under the canopy all of the wing's sound lies
 some 40 dB below the canopy's wind: what a pilot feels and hears of
@@ -328,7 +337,7 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   through 0 g at 90 degrees of bank and +1 g inverted to a pull-out at +4.5 g, at 67 to 93 kt. The canopy's hiss from
   1.6 to 6.3 kHz moves the way the model's does at the same airspeed and load factor, but twice as far, 8 dB against
   4: in the pull-up it grows by 2 to 3 dB per g, the model's by 0.2; with the yaw string far to one side it falls 2 to
-  4 dB below the model, far to the other 2 to 4 dB above (the model's slip adds half a decibel), and in both the ASI
+  4 dB below the model, far to the other 2 to 4 dB above (the model's slip adds 0.7 dB there), and in both the ASI
   misreads by 10 to 20 kt. The model's hiss hardly depends on where the ear is (0.3 dB over 10 cm). Leaks through the
   canopy's seals and vents, driven by the lift and the slip, would grow so; so might the camera's microphone, and one
   recording can't tell them apart. Nothing in it starts or stops with the ailerons, as in the model.
@@ -444,7 +453,9 @@ airplane mode from given trims; the conversion between them is not modelled. The
 nacelles below 30 degrees only, by strip theory, the blades' vortices passing through it uncut; in a hover its
 fountain is the XV-15's inflow deficit scaled by the chord (a model's probes found the load falling, jumping and
 falling again over the wing, which isn't modelled), and its switching from rotor to rotor only each revolution's
-strength. The cockpit's
+strength. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
+laws for the near wakes on the leeward wing and tail, and the shell's mass is assumed; the slip's rolling moment, held by
+the ailerons, isn't modelled, and neither is the wing's lift falling as the glider banks. A rotorcraft's cockpit
 wind is an attached boundary layer's: no separated flow round the windscreen's frame, no leaks' own flow noise, no
 compressibility (past about Mach 0.5). The cabin's interior absorption is a trimmed cabin's, estimated, for every
 aircraft that doesn't give its own. Exported loops are high-passed at 25 Hz (`--highpass`), as a recording chain is: a main rotor's

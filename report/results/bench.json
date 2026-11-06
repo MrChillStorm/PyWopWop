@@ -1,16 +1,16 @@
 {
 "lines": [
 "compact loading, 40 stations x 4 blades, one observer, 32768 samples per revolution:",
-"  retarded-time algorithm (Newton per observer sample, every blade):    348.4 ms",
-"  source-time-dominant, closed form, blade symmetry:                    41.2 ms (8x faster), difference 0.0000 %",
+"  retarded-time algorithm (Newton per observer sample, every blade):    366.7 ms",
+"  source-time-dominant, closed form, blade symmetry:                    15.5 ms (24x faster), difference 0.0000 %",
 "UH-60A, 65 kt, 800 ft/min descent (elastic blades, prescribed wake, BVI):",
-"  trim, elastic response and wake:    2.88 s",
-"  F1A at one observer:               0.428 s  (160 load points and 1966 panels, 50 M source evaluations per second)",
-"  broadband spectral history:        0.150 s",
-"  8 s loop, main and tail rotor:     30.64 s"
+"  trim, elastic response and wake:    1.82 s",
+"  F1A at one observer:               0.423 s  (160 load points and 1966 panels, 50 M source evaluations per second)",
+"  broadband spectral history:        0.200 s",
+"  8 s loop, main and tail rotor:      8.19 s"
 ],
-"loop_15s": 46.12406183301937,
-"load": 56.98828125,
+"loop_15s": 12.829622708028182,
+"load": 10.2802734375,
 "machine": "Apple M1",
 "cores": 8
 }

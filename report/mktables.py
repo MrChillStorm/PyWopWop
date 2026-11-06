@@ -606,6 +606,41 @@ def roar():
     num("NRoRollWithHi", max(v), "%.0f")
 
 
+def slip():
+    s = R("slip")
+    rows = s["rows"]
+    at = lambda kt, b: next(r for r in rows if r["kt"] == kt and r["beta"] == b)
+    k, full = s["full_kt"], s["full"]
+    z, f = at(k, 0.0), at(k, full)
+    num("NSlBalance", s["fin_balance"], "%.0f")
+    num("NSlKt", k, "%.1f")
+    num("NSlFull", full, "%.0f")
+    num("NSlOnFront", s["onset"]["front"], "%.0f")
+    num("NSlOnRear", s["onset"]["rear"], "%.0f")
+    num("NSlWing", 100 * s["wing_windward"], "%.0f")
+    num("NSlFront", f["front"] - z["front"], "%.0f")
+    num("NSlFrontFast", at(90.0, full)["front"] - at(90.0, 0.0)["front"], "%.0f")
+    num("NSlHalves", f["leeward"] - f["windward"], "%.0f")
+    num("NSlShare", 100 * f["share"], "%.0f")
+    num("NSlOA", f["front_oa"] - z["front_oa"], "%.0f")
+    num("NSlHissFull", f["hiss"] - z["hiss"])
+    num("NSlHissFin", at(k, 17.3)["hiss"] - z["hiss"])
+    num("NSlFrontFin", at(k, 17.3)["front"] - z["front"])
+    num("NSlSide", f["side"] - z["side"])
+    num("NSlSideOA", f["side_oa"] - z["side_oa"], "%.0f")
+    num("NSlBelow", f["below"] - z["below"], "%.0f")
+    num("NSlBelowOA", f["below_oa"] - z["below_oa"], "%.0f")
+    fc = np.array(s["fc"])
+    b = (fc >= 24) & (fc <= 260)
+    d = np.array(s["side_added"])[b] - np.array(s["brakes"])[b]
+    num("NSlBrakeMean", float(d.mean()), "%+.0f")
+    num("NSlBrakeSd", float(d.std()), "%.0f")
+    num("NSlLift", s["lift_rms"], "%.2f")
+    num("NSlPowWind", s["power"]["wind"])
+    num("NSlPowAir", s["power"]["airframe"])
+    num("NSlPowSlip", s["power"]["slip_wind"])
+
+
 def bench():
     b = R("bench")
     txt = "\n".join(b["lines"])
@@ -642,7 +677,7 @@ def before_after():
 
 if __name__ == "__main__":
     os.makedirs(TAB, exist_ok=True)
-    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, bench, before_after):
+    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, slip, bench, before_after):
         try:
             fn()
         except (FileNotFoundError, KeyError) as e:

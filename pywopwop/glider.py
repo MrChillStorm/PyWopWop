@@ -10,15 +10,19 @@ A glider has no engine; what is heard is the air. Its sources here:
   the trailing edge and their transition points come from NeuralFoil at each strip's Reynolds number and angle of
   attack, instead of BPM's NACA 0012 correlations.
 - Turbulent inflow (Amiet): the atmosphere's (and a thermal's) turbulence meeting the leading edges.
-- The canopy's wind: the boundary layer's wall pressure on the canopy, heard through the acrylic (the mass law),
-  less what a panel misses below hydrodynamic coincidence (its bending waves slower than the boundary layer's
-  eddies: a second-order roll-off from that frequency down). The flow over the fuselage is a potential flow (a
+- The cockpit's wind: the boundary layer's wall pressure on the canopy and on the shell below its sills, heard through
+  the acrylic and the glass fibre (the mass law), less what a panel misses below hydrodynamic coincidence (its bending
+  waves slower than the boundary layer's eddies: a second-order roll-off from that frequency down). The flow over the fuselage is a potential flow (a
   panel method on the preset's contours) at the body's angle of attack, with the wing's lifting line; the boundary
   layer runs along the canopy's top line, laminar from the nose to the canopy frame, turbulent from there, gathering
   the crossflow's boundary layer on the leeward line as the angle grows, and separating where it can no longer
-  stand the pressure rise. Each panel of the glass gets Goody's wall pressure on its local layer, each heard by the
-  solid angle it fills at the ear; separated, the wall's own fine turbulence is gone and only the separated shear
-  layer's large, slow eddies remain.
+  stand the pressure rise, or lying past the crossflow's separation line in a slip (Lee's lines for slender bodies).
+  Each panel gets Goody's wall pressure on its local layer, each heard by the solid angle it fills at the ear;
+  separated, the wall's own fine turbulence is gone and only the separated shear layer's large, slow eddies remain.
+  The left and right halves are heard apart: in a slip the windward half keeps the hiss, the leeward half rumbles.
+- A slip: the fuselage flies sideways. The crossflow across it is Fink's strut, length by length; its wake and the
+  stalled fin's reach the leeward strips, and Amiet's inflow noise takes their turbulence; the wing and tail see the
+  speed across their span. The level is an estimate: no recording of a full slip has tested it.
 - Airbrakes: each plate sheds vortices like a fence on a wall, a compact dipole by Curle's analogy (Strouhal number
   0.12 on the plate's height, rms force coefficient 0.25, spanwise correlation over three heights: assumed values
   of the bluff-plate literature); the separated flow behind it makes the whole section's lift fluctuate (rms lift
@@ -116,7 +120,8 @@ class GliderCondition:
     load_factor: float = 1.0            # a steady pull-up: the pitch rate (n - 1) g / V; negative: inverted
     brakes: float = 0.0                 # airbrake opening, 0..1
     aileron: float = 0.0                # -1..1, + rolls right (the FDM's aileron-pos-norm): a steady roll
-    rudder: float = 0.0                 # -1..1 (the FDM's rudder-pos-norm): a steady sideslip
+    rudder: float = 0.0                 # -1..1 (the FDM's rudder-pos-norm): a steady sideslip at the fin's balance
+    sideslip_deg: float = None          # a steady sideslip at this angle, whatever holds it (+: the wind from the right)
     altitude_m: float = 0.0
     turbulence_ms: float = 1.0          # rms vertical turbulence the glider meets (a thermal's edge: 2 to 3)
     turbulence_scale: float = 30.0      # m
@@ -364,7 +369,7 @@ def _bisect(f, lo, hi, n=30):
 def strip_states(g, cond, atm=None):
     """Each strip's flow (section_state's) in the condition, and the glider's: a steady pull-up at the load factor
     (pitch rate (n - 1) g / V; negative, inverted, from inverted flight: (n + 1) g / V), a steady roll at the
-    aileron, a steady sideslip at the rudder.
+    aileron, a steady sideslip at the rudder, or at an angle of its own (cond.sideslip_deg).
 
     The wing carries the weight times the load factor (Schrenk) at its sections' angles. The ailerons deflect with
     the FDM's differential, and the roll rate grows until the wing's rolling moment vanishes (strip theory: the
@@ -373,8 +378,14 @@ def strip_states(g, cond, atm=None):
     its setting, less the wing's downwash, plus the pitch rate's over its arm, less its own induced angle), the
     elevator deflecting to the lift it needs, to its stops. The fin with the rudder deflected turns the glider to
     the sideslip where its yawing moment balances the fuselage's (its end plate, the tailplane, counted as half its
-    height again; the fin's section symmetric). Returns the states (in strips' order) and dict(CL, alpha_body: the root section's angle less its
-    incidence, alpha_geo: with the wing's induced angle, roll_rate_dps, elevator_deg, sideslip_deg, tail_cl)."""
+    height again; the fin's section symmetric). That balance knows the fin and the fuselage's Munk moment only: flight
+    goes much further at full rudder (the crossflow's drag behind the centre of gravity, the fin past its stall), so a
+    slip can also be set by its angle, the rudder then in proportion to the balance's, full beyond it. In a slip the
+    wing and tail see the speed across their span, V cos(sideslip): simple sweep theory, so their lift coefficients
+    grow as 1 / cos^2 for the same lift, and the wing stalls that much sooner; the dihedral adds tan(sideslip) sin(dihedral)
+    to the windward wing's angle and takes it from the leeward's (the ailerons that hold that aren't modelled). Returns the
+    states (in strips' order) and dict(CL, alpha_body: the root section's angle less its incidence, alpha_geo: with the
+    wing's induced angle, roll_rate_dps, elevator_deg, sideslip_deg, tail_cl)."""
     atm = atm or Atmosphere(cond.altitude_m)
     V, nu = cond.V, atm.nu
     q = 0.5 * atm.rho * V ** 2
@@ -384,11 +395,47 @@ def strip_states(g, cond, atm=None):
     S = strips(g)
     wing = [s for s in S if s.kind == "wing"]
     Re = {id(s): V * s.chord / nu for s in S}
-    cl_w = wing_cl(g, CL, cond.brakes, np.array([s.y for s in wing]), np.array([s.chord for s in wing]))
+    munk = _fuselage_munk(g)
+    xq = lambda s: -s.te[0] - 0.75 * s.chord             # quarter chord, datum frame
+    # yaw: the sideslip
+    fin = [s for s in S if s.kind == "fin"]
+    full = g.fin.get("rudder_deg", 0.0)
+    if munk > 0 and g.cg_x is not None:
+        S_v = sum(s.chord * s.span for s in fin)
+        h_v = g.fin["z_top"] - g.fin["z_bottom"]
+        AR_v = 1.5 * h_v ** 2 / S_v
+        l_v = sum(xq(s) * s.chord * s.span for s in fin) / S_v - g.cg_x
+        f0 = fin[len(fin) // 2]
+
+        def fin_state(s, b, dr):
+            # mirrored (the fin's section symmetric): the sideslip's angle positive, the rudder against it
+            c = 0.0
+            for _ in range(5):
+                w = section_state(s, Re[id(s)], defl=-dr, alpha=b - np.degrees(c / (np.pi * AR_v)))
+                c = w["cl"]
+            return w
+
+        def balance(dr):
+            return _bisect(lambda b: -fin_state(f0, b, dr)["cl"] * S_v * l_v - 2.0 * munk * np.sin(np.radians(b)), 0.0, 30.0)
+    else:
+        fin_state = None
+    beta, dr = 0.0, abs(float(np.clip(cond.rudder, -1.0, 1.0))) * full
+    if cond.sideslip_deg is not None:
+        beta = abs(float(cond.sideslip_deg))
+        if fin_state is not None and full > 0:
+            dr = full * min(beta / max(balance(full), 1e-6), 1.0)
+    elif dr > 0 and fin_state is not None:
+        beta = balance(dr)
+    cb = np.cos(np.radians(beta))
+    Re.update({id(s): Re[id(s)] * cb for s in S if s.kind != "fin"})
+    cl_w = wing_cl(g, CL, cond.brakes, np.array([s.y for s in wing]), np.array([s.chord for s in wing])) / cb ** 2
     base = [section_state(s, Re[id(s)], float(c)) for s, c in zip(wing, cl_w)]
     root_alpha = base[0]["alpha"] - float(g.incidence(wing[0].y))
     a_geo = root_alpha + np.degrees(CL / (np.pi * AR))
     st = {}
+    if beta > 0:                                          # the dihedral: into the wind on the windward (right) wing
+        d = np.degrees(np.arctan(np.tan(np.radians(beta)) * np.sin(np.radians(g.dihedral_deg))))
+        base = [section_state(s, Re[id(s)], alpha=b["alpha"] + s.side * d) for s, b in zip(wing, base)]
     # roll
     a = float(np.clip(cond.aileron, -1.0, 1.0))
     ail = g.ailerons or {}
@@ -410,17 +457,16 @@ def strip_states(g, cond, atm=None):
         st.update({id(s): b for s, b in zip(wing, base)})
     # pitch: the tailplane balances the moments about the centre of gravity
     tail = [s for s in S if s.kind == "tailplane"]
-    munk = _fuselage_munk(g)
-    xq = lambda s: -s.te[0] - 0.75 * s.chord             # quarter chord, datum frame
     de, CLt = 0.0, 0.1
+    qn = q * cb ** 2
     if g.cg_x is not None:
         xc = g.cg_x
-        M = sum(-q * st[id(s)]["cl"] * s.chord * s.span * (xq(s) - xc) + q * st[id(s)]["cm"] * s.chord ** 2 * s.span
+        M = sum(-qn * st[id(s)]["cl"] * s.chord * s.span * (xq(s) - xc) + qn * st[id(s)]["cm"] * s.chord ** 2 * s.span
                 for s in wing)
         M += 2.0 * q * munk * np.sin(np.radians(a_geo))
         S_t = sum(s.chord * s.span for s in tail)
         x_t = sum(xq(s) * s.chord * s.span for s in tail) / S_t
-        CLt = M / (q * S_t * (x_t - xc))
+        CLt = M / (qn * S_t * (x_t - xc))
         a_t = (a_geo + g.tailplane["incidence_deg"] - np.degrees(2.0 * CL / (np.pi * AR))
                + np.degrees((n - np.sign(n)) * G0 / V * (x_t - xc) / V)
                - np.degrees(CLt / (np.pi * g.tailplane["span"] ** 2 / S_t)))
@@ -430,26 +476,8 @@ def strip_states(g, cond, atm=None):
         st.update({id(s): section_state(s, Re[id(s)], defl=de, alpha=a_t) for s in tail})
     else:
         st.update({id(s): section_state(s, Re[id(s)], CLt) for s in tail})
-    # yaw: the rudder's sideslip
-    fin = [s for s in S if s.kind == "fin"]
-    dr = abs(float(np.clip(cond.rudder, -1.0, 1.0))) * g.fin.get("rudder_deg", 0.0)
-    beta = 0.0
-    if dr > 0 and munk > 0 and g.cg_x is not None:
-        S_v = sum(s.chord * s.span for s in fin)
-        h_v = g.fin["z_top"] - g.fin["z_bottom"]
-        AR_v = 1.5 * h_v ** 2 / S_v
-        l_v = sum(xq(s) * s.chord * s.span for s in fin) / S_v - g.cg_x
-        f0 = fin[len(fin) // 2]
-
-        def fin_state(s, b):
-            # mirrored (the fin's section symmetric): the sideslip's angle positive, the rudder against it
-            c = 0.0
-            for _ in range(5):
-                w = section_state(s, Re[id(s)], defl=-dr, alpha=b - np.degrees(c / (np.pi * AR_v)))
-                c = w["cl"]
-            return w
-        beta = _bisect(lambda b: -fin_state(f0, b)["cl"] * S_v * l_v - 2.0 * munk * np.sin(np.radians(b)), 0.0, 30.0)
-        st.update({id(s): fin_state(s, beta) for s in fin})
+    if beta > 0 and fin_state is not None:
+        st.update({id(s): fin_state(s, beta, dr) for s in fin})
     else:
         st.update({id(s): section_state(s, Re[id(s)], 0.0) for s in fin})
     info = dict(CL=CL, alpha_body=float(root_alpha), alpha_geo=float(a_geo), roll_rate_dps=float(np.degrees(p)),
@@ -501,8 +529,9 @@ def fuselage_flow(g, nx=72, nt=24):
     sections are super-ellipses on the preset's contours. Returns the top line (the plane of symmetry, where the
     canopy's boundary layer runs in straight flight) with each onset flow's surface velocity and the surface flow's
     lateral divergence there; the surface grid (stations, angles round from the top, each onset flow's velocities,
-    the tangents along and around, the area per unit of both); and the canopy's panels (grid indices, points,
-    normals, areas, velocities). Datum frame; cached per glider."""
+    the tangents along and around, the area per unit of both); and the cockpit's panels, the canopy's glass and the
+    shell below its sills (grid indices, points, normals, areas, velocities; which are glass). Datum frame; cached per
+    glider."""
     if g.name in _FLOWS:
         return _FLOWS[g.name]
     from scipy.interpolate import PchipInterpolator
@@ -540,14 +569,15 @@ def fuselage_flow(g, nx=72, nt=24):
     t_up, t_dn = (t / np.linalg.norm(t, axis=-1, keepdims=True) for t in (t_up, t_dn))
     arc = np.linalg.norm(P[:, 1] - P[:, 0], axis=-1) + np.linalg.norm(P[:, 0] - P[:, -1], axis=-1)
     x0, x1 = fu["canopy_x"]
-    around = np.minimum(PH, 2 * np.pi - PH) <= np.radians(fu.get("canopy_half_angle_deg", 70.0))
-    cm = (X >= x0) & (X <= x1) & around
+    off_top = np.minimum(PH, 2 * np.pi - PH)
+    glass = off_top <= np.radians(fu.get("canopy_half_angle_deg", 70.0))
+    cm = (X >= x0) & (X <= x1) & (off_top <= np.radians(fu.get("shell_half_angle_deg", fu.get("canopy_half_angle_deg", 70.0))))
     e = 1e-4                                              # the surface's tangents along x and around, at the centres
     Tx, Tp = (surf(X + e, PH) - surf(X - e, PH)) / (2 * e), (surf(X, PH + e) - surf(X, PH - e)) / (2 * e)
     flow = dict(x=xm, z=P[:, 0, 2], v=np.array([v[:, 0] for v in vel]),
                 div=np.array([(np.sum(v[:, 1] * t_up, -1) - np.sum(v[:, -1] * t_dn, -1)) / arc for v in vel]),
                 xm=xm, pm=pm, vel=np.array(vel), Tx=Tx, Tp=Tp, J=np.linalg.norm(np.cross(Tx, Tp), axis=-1),
-                canopy_i=np.nonzero(cm)[0], canopy_j=np.nonzero(cm)[1],
+                canopy_i=np.nonzero(cm)[0], canopy_j=np.nonzero(cm)[1], canopy_glass=glass[cm],
                 canopy_p=P[cm], canopy_n=N[cm], canopy_a=A[cm], canopy_v=np.array([v[cm] for v in vel]))
     _FLOWS[g.name] = flow
     return flow
@@ -630,14 +660,39 @@ def _onsets(alpha_deg, beta_deg, CL):
     return np.cos(a) * np.cos(b), np.sin(a) * np.cos(b), CL, -np.sin(b)
 
 
+def crossflow_time(g, x, beta_deg):
+    """How far the crossflow has got at the fuselage's station x (datum): t* = x tan(incidence) / r(x), from the nose,
+    r(x) the section's mean radius (Jeans and Holloway 2010; the cylinder's impulsive start of Allen and Perkins, NACA
+    Report 1048, seen along the body)."""
+    fu = g.fuselage
+    h = np.interp(x, fu["x"], fu["top_z"]) - np.interp(x, fu["x"], fu["bottom_z"])
+    r = 0.5 * np.sqrt(np.maximum(h * np.interp(x, fu["x"], fu["width"]), 1e-6))
+    return (np.asarray(x, float) - fu["x"][0]) / r * np.tan(np.radians(abs(beta_deg)))
+
+
+def crossflow_separated(g, x, phi, alpha_deg, beta_deg):
+    """Whether the fuselage's surface at the stations x and the angles phi round from the top (to the right) lies behind
+    the primary crossflow separation line in a sideslip: Lee (JFM 837, 2018) collapses slender bodies' lines, incidences
+    of 6 to 35 degrees, on theta = 151.2 t*^-0.190 from the windward line, starting at t* = 1.5, whatever the Reynolds
+    number. A boundary layer marched along a surface streamline can't see this (the skewed layer's slow inner part turns
+    further than the streamline). t* takes the sideslip alone: over the top at an angle of attack the wing's suction
+    holds the flow, and the canopy stays attached to the stall."""
+    t = crossflow_time(g, x, beta_deg)
+    a, b = np.radians(alpha_deg), np.radians(beta_deg)
+    windward = np.arctan2(np.sin(b), -np.sin(a) * np.cos(b))
+    theta = np.degrees(np.abs((np.asarray(phi, float) - windward + np.pi) % (2.0 * np.pi) - np.pi))
+    return (t >= 1.5) & (theta >= 151.2 * np.maximum(t, 1.5) ** -0.190)
+
+
 def canopy_layers(g, V, alpha_deg, beta_deg, CL, atm, step=0.01):
     """Each canopy panel's boundary layer, along the surface streamline that reaches it: traced upstream through the
     potential flow's surface velocity to where it leaves the nose's stagnation region (a fifth of the airspeed, or 5
     cm from the nose's tip), the layer marched down it (_march) with
     the streamlines' spreading (the surface divergence of the flow's direction: they converge where the crossflow
     gathers, on the leeward side, and the layer thickens). In sideslip the streamlines cross the canopy at an angle,
-    the windward side's layer thin, the leeward side's gathering. Returns per panel: edge speed, theta, H, cf,
-    delta, separated, and for the separated ones the largest shear stress their layer carried (at its fastest flow
+    the windward side's layer thin, the leeward side's gathering, and past the crossflow's separation line
+    (crossflow_separated) a panel is separated whatever its layer has reached. Returns per panel: edge speed, theta, H,
+    cf, delta, separated, and for the separated ones the largest shear stress their layer carried (at its fastest flow
     before separating) and its thickness there."""
     from scipy.interpolate import RegularGridInterpolator
     F = fuselage_flow(g)
@@ -677,24 +732,27 @@ def canopy_layers(g, V, alpha_deg, beta_deg, CL, atm, step=0.01):
     th, H, cf, delta, sep = _march(U, dl, np.where(ok, xs, -1e9), np.full(m, step), g.fuselage["transition_x"],
                                    atm.nu)
     tau_max, d_sep = np.zeros(m), np.zeros(m)
-    for j in np.flatnonzero(sep >= 0):
-        u = np.where(np.arange(U.shape[1]) < sep[j], np.nan_to_num(U[j]), 0.0)
+    separated = (sep >= 0) | crossflow_separated(g, F["xm"][F["canopy_i"]], F["pm"][F["canopy_j"]], alpha_deg, beta_deg)
+    for j in np.flatnonzero(separated):
+        end = sep[j] if sep[j] >= 0 else U.shape[1] - 1
+        u = np.where(np.arange(U.shape[1]) < end, np.nan_to_num(U[j]), 0.0)
         i = int(np.argmax(u))
         tau_max[j] = 0.5 * atm.rho * U[j, i] ** 2 * cf[j, i]
-        d_sep[j] = delta[j, sep[j]]
-    return dict(Ue=U[:, -1], theta=th[:, -1], H=H[:, -1], cf=cf[:, -1], delta=delta[:, -1], separated=sep >= 0,
+        d_sep[j] = delta[j, end]
+    return dict(Ue=U[:, -1], theta=th[:, -1], H=H[:, -1], cf=cf[:, -1], delta=delta[:, -1], separated=separated,
                 tau_max=tau_max, delta_sep=d_sep)
 
 
 def canopy_wind(g, V, alpha_deg, CL, atm, ear, beta_deg=0.0):
-    """The canopy's boundary layer heard at the ear (datum frame): the wall pressure on each panel of the glass
-    (Goody's spectrum on that panel's own layer, canopy_layers'; Farabee and Casarella's level), less what a panel
-    misses below hydrodynamic coincidence, averaged by the solid angle each panel fills at the ear (a uniform pressure
-    is heard at its own level, as Levine and DeFelice's cabin estimate). Where the layer has separated, the wall's
-    own turbulence is gone and the separated shear layer's large eddies remain: Goody's outer part alone (time-scale
-    ratio 1) at an rms of 2.75 times the largest shear stress the layer carried into the adverse gradient (Simpson
-    et al. 1987, Na and Moin 1998: 2.5 to 3 near and past detachment). Returns the band powers (Pa^2, before the
-    glass's mass law) and the share of the solid angle under separated flow."""
+    """The flow on the cockpit's walls heard at the ear (datum frame): the wall pressure on each panel of the glass and
+    of the shell below the sills (Goody's spectrum on that panel's own layer, canopy_layers'; Farabee and Casarella's
+    level), less what a panel misses below hydrodynamic coincidence, averaged by the solid angle each panel fills at the
+    ear (a uniform pressure is heard at its own level, as Levine and DeFelice's cabin estimate) and through its wall (the
+    mass law). Where the layer has separated, the wall's own turbulence is gone and the separated shear layer's large
+    eddies remain: Goody's outer part alone (time-scale ratio 1) at an rms of 2.75 times the largest shear stress the
+    layer carried into the adverse gradient (Simpson et al. 1987, Na and Moin 1998: 2.5 to 3 near and past detachment).
+    Returns the band powers (Pa^2) from the right half and the left half of the cockpit, and the share of the solid
+    angle under separated flow."""
     from .wind import goody_psd
     F = fuselage_flow(g)
     bl = canopy_layers(g, V, alpha_deg, beta_deg, CL, atm)
@@ -703,10 +761,18 @@ def canopy_wind(g, V, alpha_deg, CL, atm, ear, beta_deg=0.0):
     om = F["canopy_a"] * np.abs(np.sum(F["canopy_n"] * r, -1)) / rn ** 3
     om /= om.sum()
     fu = g.fuselage
-    D = fu.get("canopy_youngs", 3.2e9) * fu.get("canopy_thickness", 0.003) ** 3 / (12.0 * (1.0 - 0.37 ** 2))
-    k_ac = np.sqrt(fu["canopy_surface_mass"] / D) / (2.0 * np.pi)
+
+    def wall(mass, thickness, youngs):
+        D = youngs * thickness ** 3 / (12.0 * (1.0 - 0.37 ** 2))
+        return mass, np.sqrt(mass / D) / (2.0 * np.pi)
+    glass = wall(fu["canopy_surface_mass"], fu.get("canopy_thickness", 0.003), fu.get("canopy_youngs", 3.2e9))
+    shell = wall(fu.get("shell_surface_mass", glass[0]), fu.get("shell_thickness", fu.get("canopy_thickness", 0.003)),
+                 fu.get("shell_youngs", fu.get("canopy_youngs", 3.2e9)))
     sep = bl["separated"]
-    parts = []
+    fg = np.unique(np.concatenate([np.geomspace(lo, hi, 12) for lo, hi in
+                                   zip(BANDS * 2 ** (-1 / 6), BANDS * 2 ** (1 / 6))]))
+    y = F["canopy_p"][:, 1]
+    S = {k: np.zeros((2, len(fg))) for k in (True, False)}
     for i in range(len(om)):
         U = bl["Ue"][i]
         if sep[i]:
@@ -717,11 +783,15 @@ def canopy_wind(g, V, alpha_deg, CL, atm, ear, beta_deg=0.0):
             ut = np.sqrt(tau / atm.rho)
             p2 = tau ** 2 * (6.5 + 1.86 * np.log(max(ut * delta / atm.nu, 333.0) / 333.0))
             rt = (delta / U) / (atm.nu / ut ** 2)
-        parts.append((om[i], U, delta, p2, rt, (0.7 * U) ** 2 * k_ac))
-    fg = np.unique(np.concatenate([np.geomspace(lo, hi, 12) for lo, hi in
-                                   zip(BANDS * 2 ** (-1 / 6), BANDS * 2 ** (1 / 6))]))
-    S = sum(o * goody_psd(fg, u, d, p2, rt) * (fg / fa) ** 2 / (1.0 + (fg / fa) ** 2) for o, u, d, p2, rt, fa in parts)
-    return _band_power(lambda f: np.interp(f, fg, S)), float(om[sep].sum())
+        kind = bool(F["canopy_glass"][i])
+        fa = (0.7 * U) ** 2 * (glass if kind else shell)[1]
+        psd = om[i] * goody_psd(fg, U, delta, p2, rt) * (fg / fa) ** 2 / (1.0 + (fg / fa) ** 2)
+        share = 0.5 if abs(y[i]) < 1e-6 else float(y[i] > 0)      # the top line's panels are on both sides
+        S[kind][0] += share * psd
+        S[kind][1] += (1.0 - share) * psd
+    half = [sum(_band_power(lambda f, q=S[k][h]: np.interp(f, fg, q)) * _mass_law(BANDS, (glass if k else shell)[0])
+                for k in S) for h in (0, 1)]
+    return half[0], half[1], float(om[sep].sum())
 
 
 # ---------------------------------------------------------------- sound at a listener
@@ -767,6 +837,84 @@ def wheel_noise(g, V, listener, atm):
     return out
 
 
+def fink_strut(d, length, W, r, dipole, atm):
+    """A cylinder of diameter d and that length (m) across the flow W (m/s), heard along r (m): mean-square pressure per
+    third-octave band, Pa^2, by Fink's strut (NASA TM-83199 part 2, section 8.8), its lift dipole along the unit vector
+    dipole (D = 3 cos^2 of the angle to it: Fink's 3 sin^2 theta sin^2 phi)."""
+    M = W / atm.c
+    rn = float(np.linalg.norm(r))
+    S = BANDS * d / W
+    F = 5.325 * S ** 2 / (30.0 + S ** 8)
+    D = 3.0 * float(np.dot(r, dipole) / rn) ** 2 if np.ndim(dipole) == 1 else float(dipole)
+    return (atm.rho * atm.c ** 2) ** 2 * 2.753e-4 * M ** 6 * d * length * D * F / (4.0 * np.pi * rn ** 2)
+
+
+CROSS_DRAG = 0.85                       # a slender body's crossflow drag coefficient: 1.2, 0.7 for its finite length
+                                        # (Allen and Perkins, NACA Report 1048)
+
+
+def crossflow_noise(g, V, alpha_deg, beta_deg, listener, atm, dx=0.25):
+    """The fuselage flying sideways: a body across a crossflow V sin(sideslip) behind its separation line (t* past 1.5),
+    each length of it Fink's strut of that section's height, the unsteady lift it makes normal to the crossflow and the
+    body. That level is a cylinder's Curle dipole with an rms lift coefficient of 0.07 at a Strouhal number of 0.2 over five
+    diameters, as past the drag crisis, where the crossflow's Reynolds number of 3e5 to 2e6 sits. The body's drag
+    fluctuates too, at a tenth of that power (assumed: a cylinder's drag fluctuates about a fifth to a third of its lift,
+    at twice the frequency). Listener: aircraft frame."""
+    fu = g.fuselage
+    b, a = np.radians(abs(beta_deg)), np.radians(alpha_deg)
+    W = V * np.sin(b)
+    out = np.zeros(len(BANDS))
+    if W <= 0:
+        return out
+    c = np.array([0.0, np.sin(b), np.sin(a) * np.cos(b)])
+    c /= np.linalg.norm(c)
+    lift = np.cross([1.0, 0.0, 0.0], c)
+    for x in np.arange(fu["x"][0] + dx / 2, fu["x"][-1], dx):
+        if crossflow_time(g, x, beta_deg) < 1.5:
+            continue
+        top, bot = float(np.interp(x, fu["x"], fu["top_z"])), float(np.interp(x, fu["x"], fu["bottom_z"]))
+        r = np.asarray(listener, float) - to_body(x, 0.0, 0.5 * (top + bot))
+        rh = r / np.linalg.norm(r)
+        out = out + fink_strut(top - bot, dx, W, r, 3.0 * ((rh @ lift) ** 2 + 0.1 * (rh @ c) ** 2), atm)
+    return out
+
+
+def wake_turbulence(g, s, fin_stalled, alpha_deg, beta_deg):
+    """What strip s meets in the wake of a body upwind of it in a slip: rms velocity (per unit airspeed) and integral
+    scale (m). A leeward strip's line back along the wind crosses the plane of symmetry at the fuselage (the inboard
+    wing: the crossflow's wake leaves the fuselage to leeward at the sideslip, so past the tail) or at the fin, stalled (the
+    tailplane's leeward half). Far-wake similarity (Wygnanski, Champagne and Marasli 1986): the half-width
+    sqrt(0.47 S Cd d x) at a spreading parameter S of 0.1 and the deficit that keeps the drag's momentum in it, the rms
+    0.4 of the deficit, no wider or stronger than the body gives near it, falling across as a Gaussian; the integral scale
+    half the half-width. An estimate: both wakes are near wakes."""
+    if beta_deg == 0.0 or s.kind == "fin":
+        return 0.0, 1.0
+    b, a = np.radians(abs(beta_deg)), np.radians(alpha_deg)
+    le = s.te + np.array([s.chord, 0.0, 0.0])
+    X, Y, Z = -le[0], -le[1], le[2]
+    if Y * beta_deg >= 0.0:                               # windward, or on the plane of symmetry
+        return 0.0, 1.0
+    t = abs(Y) / np.sin(b)                                # along the wind, back to the plane of symmetry
+    Xq, Zq = X - t * np.cos(b) * np.cos(a), Z - t * np.cos(b) * np.sin(a)
+    fu, fn = g.fuselage, g.fin
+
+    def wake(d, cd, x, off):
+        r = max(0.5 * d, np.sqrt(0.047 * cd * d * x))
+        deficit = min(1.0, 0.235 * cd * d / np.sqrt(0.047 * cd * d * x))
+        return 0.4 * deficit * np.exp(-np.log(2.0) * (off / r) ** 2), 0.5 * r
+    if s.kind == "wing" and fu["x"][0] < Xq < fu["x"][-1]:
+        top, bot = float(np.interp(Xq, fu["x"], fu["top_z"])), float(np.interp(Xq, fu["x"], fu["bottom_z"]))
+        # across the body the crossflow makes the wake: its distance the leeward one, its velocity V sin(sideslip)
+        u, L = wake(top - bot, CROSS_DRAG, abs(Y), Zq - 0.5 * (top + bot))
+        return u * np.sin(b), L
+    if s.kind == "tailplane" and fin_stalled:
+        # the fin seen along the wind: its middle's line, off to the side by the sideslip, or past its top
+        d = (fn["x_te"] - fn["x_le_bottom"]) * np.sin(b)
+        across = (Xq - 0.5 * (fn["x_le_bottom"] + fn["x_te"])) * np.sin(b)
+        return wake(d, 1.2, t, np.hypot(across, max(Zq - fn["z_top"], fn["z_bottom"] - Zq, 0.0)))
+    return 0.0, 1.0
+
+
 def cockpit_roar(g, V, atm):
     """The cockpit's low roar, what recordings hold there that follows the airspeed and these sources don't reach:
     the preset's bands (dB at its speed) growing as the speed to its exponent, the air's density squared."""
@@ -780,11 +928,14 @@ def cockpit_roar(g, V, atm):
 
 def spectra(g, cond, listener, inside=False):
     """Mean-square pressure per third-octave band (Pa^2) at the listener (aircraft frame, m), per source:
-    'airframe' (wing and tail self-noise, turbulent inflow and the fixed wheels), 'brakes' (what the opened brakes add), 'ailerons'
-    (what the deflected ailerons and the roll add; with the aileron deflected), 'wind' (the canopy's boundary layer
-    and the measured low roar; inside only). inside: the listener sits under the canopy (its mass law applies to the
-    sound from outside). Also returns the state: body angle of attack, lift coefficient, the span's share stalled,
-    the chord's share separated (the span's mean), and inside the canopy's share (as heard) under separated flow."""
+    'airframe' (wing and tail self-noise, turbulent inflow and the fixed wheels; in a slip the fuselage across the flow
+    and what its wake and the fin's do to the leeward strips), 'brakes' (what the opened brakes add), 'ailerons'
+    (what the deflected ailerons and the roll add; with the aileron deflected), 'wind' (the flow on the cockpit's walls
+    and the measured low roar; inside only) and its halves, 'windward' and 'leeward' (the right and left halves of the
+    cockpit: the wind's from the right, sideslip positive). inside: the listener sits under the canopy (its mass law
+    applies to the sound from outside). Also returns the state: body angle of attack, lift coefficient, the span's share
+    stalled, the chord's share separated (the span's mean), and inside the cockpit's share (as heard) under separated
+    flow."""
     atm = Atmosphere(cond.altitude_m)
     V = cond.V
     rho, c0, nu = atm.rho, atm.c, atm.nu
@@ -797,9 +948,13 @@ def spectra(g, cond, listener, inside=False):
     brakes = np.zeros(len(BANDS))
     L = np.asarray(listener, float)
     stalled_span = separated = 0.0
-    M = V / c0
+    beta = info["sideslip_deg"]
+    cb = np.cos(np.radians(beta))
+    fin_stalled = any(st["stalled"] for s, st in zip(S, states) if s.kind == "fin")
     for i, (s, st) in enumerate(zip(S, states)):
         cl = st["cl"]
+        Vs = V if s.kind == "fin" else V * cb             # the speed across the span
+        M = Vs / c0
         if s.kind == "wing":
             stalled_span += s.span * st["stalled"]
             separated += s.span * st["sep"]
@@ -812,19 +967,23 @@ def spectra(g, cond, listener, inside=False):
         theta = np.degrees(np.arccos(np.clip(rh @ xe, -1, 1)))
         phi = np.degrees(np.arctan2(abs(rh @ s.normal), rh @ s.span_dir))
         bl = (st["delta_p"], st["dstr_s"], st["dstr_p"])
-        _, _, _, spl = bpm.tblte(a_star, s.chord, V, BANDS, s.span, rn, theta, phi, 1, nu, c0, bl=bl)
+        _, _, _, spl = bpm.tblte(a_star, s.chord, Vs, BANDS, s.span, rn, theta, phi, 1, nu, c0, bl=bl)
         air += p2(np.atleast_2d(spl)[0])
-        air += p2(np.atleast_2d(bpm.blunt(a_load, s.chord, V, BANDS, s.span, rn, theta, phi, g.wing["te_thickness"],
+        air += p2(np.atleast_2d(bpm.blunt(a_load, s.chord, Vs, BANDS, s.span, rn, theta, phi, g.wing["te_thickness"],
                                           14.0, 1, nu, c0, bl=bl))[0])
         if st["laminar"] and not st["stalled"]:
-            air += p2(np.atleast_2d(bpm.lblvs(a_load, s.chord, V, BANDS, s.span, rn, theta, phi, 0, nu, c0,
+            air += p2(np.atleast_2d(bpm.lblvs(a_load, s.chord, Vs, BANDS, s.span, rn, theta, phi, 0, nu, c0,
                                               bl=bl))[0])
+        a_in = np.radians(min(a_load, 20.0))              # Amiet's angle term, to where it was fitted
         if cond.turbulence_ms > 0:
-            air += p2(np.atleast_2d(bpm.amiet_inflow(s.chord, V, BANDS, s.span, rn, theta, phi, rho, c0,
-                                                     cond.turbulence_ms / V, cond.turbulence_scale,
-                                                     np.radians(a_load)))[0])
+            air += p2(np.atleast_2d(bpm.amiet_inflow(s.chord, Vs, BANDS, s.span, rn, theta, phi, rho, c0,
+                                                     cond.turbulence_ms / Vs, cond.turbulence_scale, a_in))[0])
+        u_w, L_w = wake_turbulence(g, s, fin_stalled, info["alpha_geo"], beta)
+        if u_w > 0.0:                                     # the wake meeting the leading edge: a rod-aerofoil's noise
+            air += p2(np.atleast_2d(bpm.amiet_inflow(s.chord, Vs, BANDS, s.span, rn, theta, phi, rho, c0,
+                                                     u_w * V / Vs, L_w, a_in))[0])
         if s.tip and s.kind == "wing":
-            air += p2(np.atleast_2d(bpm.tip(min(a_load, 15.0), s.chord, V, BANDS, rn, theta, phi, c0,
+            air += p2(np.atleast_2d(bpm.tip(min(a_load, 15.0), s.chord, Vs, BANDS, rn, theta, phi, c0,
                                             round_tip=True))[0])
         if s.control == "aileron" and st["defl"] != 0.0:
             # each end of a deflected aileron sheds a vortex as a wing's tip does (a flap's side-edge noise), as
@@ -832,20 +991,20 @@ def spectra(g, cond, listener, inside=False):
             # clean section that lift (thin-aerofoil slope)
             ends = sum(1 for j in (i - 1, i + 1) if not (0 <= j < len(S) and S[j].control == "aileron"
                                                           and S[j].side == s.side))
-            jump = st["cl"] - section_state(s, V * s.chord / nu, alpha=st["alpha"])["cl"]
+            jump = st["cl"] - section_state(s, Vs * s.chord / nu, alpha=st["alpha"])["cl"]
             a_edge = min(np.degrees(abs(jump) / (2.0 * np.pi)), 15.0)
-            air += ends * p2(np.atleast_2d(bpm.tip(a_edge, s.chord, V, BANDS, rn, theta, phi, c0))[0])
+            air += ends * p2(np.atleast_2d(bpm.tip(a_edge, s.chord, Vs, BANDS, rn, theta, phi, c0))[0])
         if s.brake > 0 and cond.brakes > 0:
             h = g.airbrakes["height"] * cond.brakes
             Lb = s.brake * s.span
             # the plate's wake at the trailing edge: BPM's trailing-edge noise with the wake's thickness, the
             # increase over the clean edge's
             blw = (max(st["delta_p"], 2.0 * h), max(st["dstr_s"], h), st["dstr_p"])
-            _, _, _, wk = bpm.tblte(max(a_star, 13.0), s.chord, V, BANDS, Lb, rn, theta, phi, 1, nu, c0, bl=blw)
-            _, _, _, cl_te = bpm.tblte(a_star, s.chord, V, BANDS, Lb, rn, theta, phi, 1, nu, c0, bl=bl)
+            _, _, _, wk = bpm.tblte(max(a_star, 13.0), s.chord, Vs, BANDS, Lb, rn, theta, phi, 1, nu, c0, bl=blw)
+            _, _, _, cl_te = bpm.tblte(a_star, s.chord, Vs, BANDS, Lb, rn, theta, phi, 1, nu, c0, bl=bl)
             brakes += np.maximum(p2(np.atleast_2d(wk)[0]) - p2(np.atleast_2d(cl_te)[0]), 0.0)
             # vortex shedding from the plate (Curle), at the plate (a chord's 40 % from the leading edge)
-            Ue = V * np.sqrt(1.0 + 0.8 * max(cl, 0.0))
+            Ue = Vs * np.sqrt(1.0 + 0.8 * max(cl, 0.0))
             fs = 0.12 * Ue / h
             Fp = 0.5 * rho * Ue ** 2 * h * 0.25
             lc = 3.0 * h
@@ -861,11 +1020,13 @@ def spectra(g, cond, listener, inside=False):
             # and the unsteady lift the separated flow puts on the whole spoiled section (spoiler studies find the
             # pressure fluctuating around the whole airfoil): an rms lift coefficient of 0.04 at full opening
             # (assumed), correlated over half a chord, the same spectrum, radiating normal to the wing
-            Fl = 0.5 * rho * V ** 2 * s.chord * 0.04 * cond.brakes
+            Fl = 0.5 * rho * Vs ** 2 * s.chord * 0.04 * cond.brakes
             Dl = (rbh @ s.normal) ** 2 + 0.05
             pl = Lb * 0.5 * s.chord * fs ** 2 * Fl ** 2 * Dl / (4.0 * c0 ** 2 * rbn ** 2)
             brakes += pl * _band_power(lambda f: shape(f) / norm)
     air = air + wheel_noise(g, V, L, atm)
+    if beta > 0.0 and not inside:                         # at the ear the body's flow is the walls' (canopy_wind)
+        air = air + crossflow_noise(g, V, info["alpha_geo"], beta, L, atm)
     out = dict(airframe=air, brakes=brakes)
     if cond.aileron != 0.0:
         # what the deflected ailerons and the roll add: the airframe's sound over the same glider's without them
@@ -875,10 +1036,12 @@ def spectra(g, cond, listener, inside=False):
     if inside and "top_z" in g.fuselage:
         T = _mass_law(BANDS, g.fuselage["canopy_surface_mass"])
         out = {k: v * T for k, v in out.items()}
-        # the canopy's own boundary layer, on the fuselage's flow at the body's angle (the wing's own included:
-        # its induced angle, CL / (pi AR), on the root section's)
-        wind, shared = canopy_wind(g, V, info["alpha_geo"], CL, atm, to_body(*L), info["sideslip_deg"])
-        out["wind"] = wind * T + cockpit_roar(g, V, atm)
+        # the flow on the cockpit's walls, on the fuselage's flow at the body's angle (the wing's own included: its
+        # induced angle, CL / (pi AR), on the root section's); the measured roar, whose source isn't known, shared
+        right, left, shared = canopy_wind(g, V, info["alpha_geo"], CL, atm, to_body(*L), beta)
+        roar = 0.5 * cockpit_roar(g, V, atm)
+        out["windward"], out["leeward"] = right + roar, left + roar
+        out["wind"] = out["windward"] + out["leeward"]
         cstate = dict(canopy_separated=shared)
     elif inside:
         T = _mass_law(BANDS, g.fuselage["canopy_surface_mass"])
@@ -894,6 +1057,7 @@ def spectra(g, cond, listener, inside=False):
         f_ac = (0.7 * Uc) ** 2 * np.sqrt(fu["canopy_surface_mass"] / D) / (2.0 * np.pi)
         cpl = lambda f: (f / f_ac) ** 2 / (1.0 + (f / f_ac) ** 2)
         out["wind"] = _band_power(lambda f: wall_pressure_psd(f, Uc, run, atm) * cpl(f)) * T + cockpit_roar(g, V, atm)
+        out["windward"] = out["leeward"] = 0.5 * out["wind"]
     wing_span = sum(s.span for s in wing)
     state = dict(CL=CL, alpha_body=info["alpha_body"], stalled_share=stalled_span / wing_span,
                  separated_share=separated / wing_span, roll_rate_dps=info["roll_rate_dps"],
@@ -913,22 +1077,21 @@ def _band_loop(msp, L, fs, rng):
     for b in range(len(BANDS)):
         if msp[b] <= 0 or BANDS[b] > 0.45 * fs:
             continue
-        w = np.cos(0.5 * np.pi * np.clip(u - nb[b], -1.0, 1.0)) * (np.abs(u - nb[b]) < 1.0)
-        n = int(np.count_nonzero(w))
-        if n == 0:
+        i0, i1 = max(int(np.searchsorted(u, nb[b] - 1.0)), 1), int(np.searchsorted(u, nb[b] + 1.0))
+        if i1 <= i0:
             continue
-        Xb = (rng.normal(size=len(k)) + 1j * rng.normal(size=len(k))) * w
-        Xb[0] = 0.0
+        n = i1 - i0
+        Xb = (rng.normal(size=n) + 1j * rng.normal(size=n)) * np.cos(0.5 * np.pi * (u[i0:i1] - nb[b]))
         # this draw's mean square (one-sided spectrum: Parseval counts it twice), scaled to the band's exactly
         p = 2.0 * np.sum(np.abs(Xb) ** 2) / L ** 2
-        X += Xb * np.sqrt(msp[b] / p)
+        X[i0:i1] += Xb * np.sqrt(msp[b] / p)
     X[0] = 0.0
     return sfft.irfft(X, L, workers=-1)
 
 
 def render_glider(g, cond, observer, fs=48000.0, duration=15.0, seed=1, environment="open", f_highpass=20.0):
-    """A seamless loop of the glider's sound at an observer riding with it: Render with layers airframe, brakes
-    and (inside) wind, and their total."""
+    """A seamless loop of the glider's sound at an observer riding with it: Render with layers airframe, brakes and
+    (inside) windward and leeward, the cockpit's two halves, uncorrelated, and wind, their sum; and their total."""
     from .environment import Environment, apply as apply_environment
     inside = observer.position is not None
     pos = to_body(*observer.position) if inside else observer.offset()
@@ -938,9 +1101,12 @@ def render_glider(g, cond, observer, fs=48000.0, duration=15.0, seed=1, environm
     V = cond.V
     bw = max(0.15, V / 60.0)
     gust = _slow_noise(rng, L, fs, bw)[0] * cond.turbulence_ms / V
-    k = dict(airframe=2.5, brakes=3.0, ailerons=2.5, wind=2.0)   # amplitude ~ U^2.5 (edges), U^3 (bluff), U^2 (wall)
+    # amplitude ~ U^2.5 (edges), U^3 (bluff), U^2 (wall)
+    k = dict(airframe=2.5, brakes=3.0, ailerons=2.5, windward=2.0, leeward=2.0)
     sig = {}
     for name, msp in sp.items():
+        if name == "wind":                                # its halves are the loops
+            continue
         x = _band_loop(msp, L, fs, rng)
         sig[f"layer/{name}"] = x * np.maximum(1.0 + k[name] * gust, 0.2)
     dist = float(np.linalg.norm(pos))
@@ -951,12 +1117,16 @@ def render_glider(g, cond, observer, fs=48000.0, duration=15.0, seed=1, environm
     srng = np.random.default_rng(seed + 999)
     for key in sig:
         x = sig[key]
+        if not x.any():                                   # brakes shut, say
+            continue
         if not inside:
             x = propagate_static(x, fs, dist, atm.T, atm.humidity, atm.p)
             x = scintillate(x, fs, dist, var, srng, scint_cache)
             x = apply_environment(x, fs, -pos[2], dist, env)
         sig[key] = highpass(x, fs, f_highpass)
     sig["total"] = sum(sig.values())
+    if inside:
+        sig["layer/wind"] = sig["layer/windward"] + sig["layer/leeward"]
     meta = dict(glider=g.name, airspeed_kt=cond.airspeed_kt, brakes=cond.brakes, load_factor=cond.load_factor,
                 observer=observer.name, distance_m=dist, **{k: round(float(v), 4) for k, v in state.items()})
     return Render(fs, sig, [], meta)
@@ -967,17 +1137,46 @@ def render_glider(g, cond, observer, fs=48000.0, duration=15.0, seed=1, environm
 SPEEDS_KT = (40.0, 50.0, 60.0, 75.0, 90.0, 110.0, 130.0, 150.0)
 VIEWS = ("cockpit", "cockpit_rear", "side", "front_right", "rear", "below")
 STALL_LOAD_FACTORS = (1.0, 2.0, 3.5, 5.0)
+SLIP_ANGLES_DEG = (15.0, 25.0, 35.0, 50.0)              # the front seat's flow separates at 23 degrees, the rear's at 14
+
+
+def low_speed_power(g, v_low, distance=30.0, slip_deg=SLIP_ANGLES_DEG[-1]):
+    """How each layer's power falls with the speed below the lowest loop (v_low, kt): the exponents of its A-weighted
+    power from a fifth of that speed up, at the cockpit (the wind) and outside (the rest). The glider isn't flying
+    there, so the wing stays at a lift coefficient of 0.4 (a lighter glider: the load factor would turn the tail's
+    angle with a pitch rate) in a gust ratio as the lowest loop's. slip_wind and slip_airframe: the same at the largest
+    slip angle, where the separated flow's power goes more nearly as the fourth power."""
+    from .synth import a_weighting_db
+    a = 10.0 ** (a_weighting_db(BANDS) / 10.0)
+    so = STANDARD_OBSERVERS["side"]
+    side = Observer("side", so.azimuth_deg, so.elevation_deg, distance).offset()
+    head = to_body(*g.cockpit["front"])
+    kts = v_low * np.array([0.2, 0.35, 0.6, 1.0])
+    P = {}
+    for v in kts:
+        c = GliderCondition(airspeed_kt=float(v), brakes=1.0, aileron=1.0, turbulence_ms=v / v_low)
+        light = replace(g, mass_kg=0.4 * 0.5 * Atmosphere(0.0).rho * c.V ** 2 * g.wing_area / G0)
+        s = GliderCondition(airspeed_kt=float(v), sideslip_deg=slip_deg, turbulence_ms=v / v_low)
+        sp = spectra(light, c, side)[0]
+        sp["wind"] = spectra(light, c, head, True)[0]["wind"]
+        sp["slip_airframe"] = spectra(light, s, side)[0]["airframe"]
+        sp["slip_wind"] = spectra(light, s, head, True)[0]["wind"]
+        for k, x in sp.items():
+            P.setdefault(k, []).append(float(np.sum(x * a)))
+    return {k: round(float(np.polyfit(np.log(kts), np.log(np.maximum(p, 1e-30)), 1)[0]), 2) for k, p in P.items()}
 
 
 def make_glider_bank(g, out_dir, speeds=SPEEDS_KT, views=VIEWS, distance=30.0, fs=48000.0, duration=15.0,
                      bits=16, peak_dbfs=-1.0, environment="open", seed=1, stall_load_factors=STALL_LOAD_FACTORS,
-                     progress=print):
+                     slip_angles=SLIP_ANGLES_DEG, progress=print):
     """Loops of the glider at the airspeeds (brakes fully out and full aileron in a steady roll, their layers
     separate) and at the stall at the load factors (1 g, and accelerated: the wing's sound only), inverted at -1 g
-    (the airspeeds from 1.1 times its stall's, and its stall), slipping with full rudder (inside: the canopy's flow
-    turned), in the cockpit and outside, with manifest.json and pywopwop-glider.xml. Layers: airframe (wing and tail), wind (the canopy's
-    boundary layer, inside), brakes (what the opened airbrakes add), ailerons (what full aileron and its roll add);
-    mix: airframe and wind. One gain for the cockpit's loops and one for the outside's."""
+    (the airspeeds from 1.1 times its stall's, and its stall), slipping at the angles (inside the wind's halves, outside
+    the airframe), in the cockpit and outside, with manifest.json and pywopwop-glider.xml. Layers: airframe (wing and
+    tail, in a slip the fuselage across the flow and the wakes), windward and leeward (the flow on the cockpit's right and
+    left halves, inside: in straight flight two equal halves, uncorrelated), brakes (what the opened airbrakes add),
+    ailerons (what full aileron and its roll add); mix: airframe and wind (no slip has one). One gain for the cockpit's
+    loops and one for the outside's."""
     import json
     from .synth import write_wav
     out = Path(out_dir)
@@ -992,13 +1191,13 @@ def make_glider_bank(g, out_dir, speeds=SPEEDS_KT, views=VIEWS, distance=30.0, f
     inverted = [v for v in speeds if v >= 1.1 * vi]
     conds += [(f"inv_{v:g}kt", GliderCondition(airspeed_kt=v, load_factor=-1.0)) for v in inverted]
     conds.append(("stall_inv", GliderCondition(airspeed_kt=round(0.97 * vi, 1), load_factor=-1.0)))
-    conds += [(f"slip_{v:g}kt", GliderCondition(airspeed_kt=v, rudder=1.0)) for v in speeds]
+    conds += [(f"slip{b:g}_{v:g}kt", GliderCondition(airspeed_kt=v, sideslip_deg=b)) for b in slip_angles for v in speeds]
     beta = strip_states(g, GliderCondition(airspeed_kt=60.0, rudder=1.0))[1]["sideslip_deg"]
+    power = low_speed_power(g, min(speeds), distance, slip_angles[-1] if slip_angles else 0.0)
+    keys = ["mix", "layer/airframe", "layer/windward", "layer/leeward", "layer/brakes", "layer/ailerons"]
     renders = []
     for i, (name, c) in enumerate(conds):
         for v in views:
-            if c.rudder and not v.startswith("cockpit"):  # a slip turns the canopy's flow: heard inside
-                continue
             if v.startswith("cockpit"):
                 o = Observer(v, position=tuple(g.cockpit["rear" if v.endswith("rear") else "front"]))
             else:
@@ -1006,69 +1205,142 @@ def make_glider_bank(g, out_dir, speeds=SPEEDS_KT, views=VIEWS, distance=30.0, f
                 o = Observer(v, so.azimuth_deg, so.elevation_deg, distance)
             r = render_glider(g, c, o, fs, duration, seed + 13 * i, environment)
             r.signals["mix"] = sum(x for k, x in r.signals.items() if k in ("layer/airframe", "layer/wind"))
-            renders.append((name, c, o, r))
             lv = r.levels()
+            ref = np.sqrt(np.mean(r.signals["mix"] ** 2))
+            # what the bank keeps of it, in single precision: a few hundred loops have to fit in memory for the gains
+            keep = {}
+            for k in keys:
+                if k not in r.signals or np.sqrt(np.mean(r.signals[k] ** 2)) < 1e-4 * ref:
+                    continue
+                if c.load_factor > 1 and k != "layer/airframe":    # an accelerated stall: the wing's sound only
+                    continue
+                if c.sideslip_deg is not None and (k == "mix" or (k == "layer/airframe" and o.position is not None)):
+                    continue                              # a slip's cockpit: the wind's halves, the rest far under them
+                keep[k] = r.signals[k].astype(np.float32)
+            r.signals = keep
+            renders.append((name, c, o, r, lv))
             progress(f"  {name:10s} {v:12s} mix {lv['mix']['dba']:5.1f} dBA, airframe {lv['layer/airframe']['dba']:5.1f}"
                      + (f", brakes {lv['layer/brakes']['dba']:5.1f}" if c.brakes > 0 else "")
                      + (f", ailerons {lv['layer/ailerons']['dba']:5.1f}" if c.aileron != 0 else ""))
-    keys = ["mix", "layer/airframe", "layer/wind", "layer/brakes", "layer/ailerons"]
 
     def group(o):
         return "cockpit" if o.position is not None else "exterior"
     gains = {}
-    for gr in {group(o) for _, _, o, _ in renders}:
-        peak = max(np.max(np.abs(r.signals[k])) for _, _, o, r in renders if group(o) == gr for k in keys
-                   if k in r.signals)
+    for gr in {group(o) for _, _, o, _, _ in renders}:
+        peak = max(float(np.max(np.abs(x))) for _, _, o, r, _ in renders if group(o) == gr for x in r.signals.values())
         gains[gr] = 10.0 ** (peak_dbfs / 20.0) / peak
     files = []
-    for name, c, o, r in renders:
-        lv = r.levels()
-        ref = np.sqrt(np.mean(r.signals["mix"] ** 2))
-        for k in keys:
-            if k not in r.signals or np.sqrt(np.mean(r.signals[k] ** 2)) < 1e-4 * ref:
-                continue
-            if c.load_factor > 1 and k != "layer/airframe":        # an accelerated stall: the wing's sound only
-                continue
+    for name, c, o, r, lv in renders:
+        for k in r.signals:
             label = k.split("/")[-1]
             fn = f"{name}_{o.name}_{label}.wav"
-            write_wav(out / fn, r.signals[k], r.fs, bits, gains[group(o)], seed=abs(hash(fn)) % 2 ** 32)
+            write_wav(out / fn, r.signals[k].astype(float), r.fs, bits, gains[group(o)], seed=abs(hash(fn)) % 2 ** 32)
             files.append(dict(file=fn, condition=name, airspeed_kt=c.airspeed_kt, load_factor=c.load_factor,
                               observer=o.name, source=label,
+                              **({} if c.sideslip_deg is None else dict(sideslip_deg=c.sideslip_deg)),
                               alpha_body_deg=r.meta["alpha_body"], oaspl_db=round(lv[k]["oaspl"], 2),
                               dba=round(lv[k]["dba"], 2)))
-    stall = next(r for n, _, _, r in renders if n == "stall")
-    stall_i = next(r for n, _, _, r in renders if n == "stall_inv")
+    stall = next(r for n, _, _, r, _ in renders if n == "stall")
+    stall_i = next(r for n, _, _, r, _ in renders if n == "stall_inv")
     manifest = dict(glider=g.name, generator="pywopwop", sample_rate=fs, bits=bits,
                     gain_db={k: round(20 * np.log10(v), 3) for k, v in gains.items()},
                     stall_speed_kt=round(vs, 1), stall_alpha_body_deg=round(stall.meta["alpha_body"], 2),
                     separation_alpha_body_deg=round(on["alpha_body"], 2),
                     exterior_distance_m=distance, speeds_kt=list(speeds), files=files,
                     stall_load_factors=list(stall_load_factors), inverted_speeds_kt=inverted,
-                    slip_speeds_kt=list(speeds), slip_sideslip_deg=round(beta, 1),
+                    slip_speeds_kt=list(speeds), slip_angles_deg=list(slip_angles), slip_fin_balance_deg=round(beta, 1),
+                    low_speed_power=power, cockpit_sound_position=_sound_position(g),
                     inverted_stall_speed_kt=round(vi, 1), inverted_stall_alpha_body_deg=round(stall_i.meta["alpha_body"], 2),
                     inverted_separation_alpha_body_deg=round(on_i["alpha_body"], 2),
                     note="levels: dB re 20 uPa at the listener before the gain; brakes: fully open; ailerons: full, "
-                         "in a steady roll")
+                         "in a steady roll; slips: the fuselage's crossflow, its wake and the cockpit's separated flow "
+                         "are estimates no full-slip recording has tested")
+    manifest["max_sources"] = glider_sources(manifest)
+    progress(f"  at most {manifest['max_sources']['cockpit']} loops at once inside, {manifest['max_sources']['exterior']} outside")
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (out / "pywopwop-glider.xml").write_text(flightgear_glider_xml(manifest))
     return manifest
 
 
+def _sound_position(g):
+    """Where the cockpit's halves play, in FlightGear's sound frame (x aft, y left, z up, m from the model's origin): left
+    and right of the view's eye, at the cockpit's walls. None if the preset doesn't say where the eye is."""
+    eye = g.cockpit.get("fg_eye")
+    if eye is None:
+        return None
+    half = 0.5 * float(np.interp(g.cockpit["front"][0], g.fuselage["x"], g.fuselage["width"]))
+    return dict(x=eye[0], y=round(half, 3), z=eye[2])
+
+
+def _size(var, lo, hi):
+    """A gate for lo < |var| < hi (no lo: from zero itself; no hi: without end): the ranges, any of which lets a loop run"""
+    if lo is None:
+        return ((var, -hi, hi),)
+    return (var, lo, hi), (var, None if hi is None else -hi, -lo)
+
+
 def flightgear_glider_xml(manifest, sound_dir="Sounds/pywopwop", cockpit="cockpit", exterior="side"):
-    """FlightGear <fx> entries. The canopy's wind follows the airspeed alone (its flow stays attached as the wing
-    stalls): its loops cross-faded by equal power, the stall's the lowest. The wing's sound cross-fades the same way
+    """FlightGear <fx> entries: _glider_section's."""
+    return _glider_section(manifest, sound_dir, cockpit, exterior)[0]
+
+
+def glider_sources(manifest, sound_dir="Sounds/pywopwop", cockpit="cockpit", exterior="side"):
+    """The most of the section's loops that run at once, inside and outside, over airspeed, sideslip, load factor,
+    brakes and ailerons. SimGear has 128 sources for all of FlightGear's sounds, and a looped sound holds one for as long
+    as its condition is true, however silent it is."""
+    loops = _glider_section(manifest, sound_dir, cockpit, exterior)[1]
+    names = ("kt", "slip", "g", "brakes", "aileron")
+    grid = dict(zip(names, np.meshgrid(np.arange(0.7, 180.0, 1.9), np.arange(-60.3, 61.0, 2.9), (-1.5, 0.3, 1.4),
+                                       (0.0, 0.5), (0.0, 0.4), indexing="ij")))
+    out = {}
+    for group, view in (("cockpit", cockpit), ("exterior", exterior)):
+        count = np.zeros(grid["kt"].shape, int)
+        for v, gates in loops:
+            if v != view:
+                continue
+            on = np.ones(count.shape, bool)
+            for gate in gates:
+                any_of = np.zeros(count.shape, bool)
+                for var, lo, hi in gate:
+                    any_of |= (grid[var] > (-np.inf if lo is None else lo)) & (grid[var] < (np.inf if hi is None else hi))
+                on &= any_of
+            count += on
+        out[group] = int(count.max())
+    return out
+
+
+def _glider_section(manifest, sound_dir, cockpit, exterior):
+    """FlightGear <fx> entries, and each loop's view and gates. The cockpit's wind follows the airspeed alone (its flow stays attached as the wing
+    stalls): its loops cross-faded by equal power, the stall's the lowest. Below the lowest loop each layer's power
+    falls as the speed to its low_speed_power (in the manifest). The wing's sound cross-fades the same way
     while its flow is attached and turns to the stall loops' with the angle of attack, from where the wing's flow
     begins to separate to the stall (as its separated share grows; over the last 3 degrees without that angle in the
     manifest), the stall loops (1 g and accelerated) cross-faded by airspeed in turn. The brakes' layer with the
     square root of their opening (their noise grows with the plates' height), the ailerons' with their deflection.
     Inverted (in the manifest) the same at -1 g, the upright and the inverted loops cross-faded by the load factor
-    the pilot feels from +1 to -1 g. Slipping (in the manifest) the cockpit's wind turns to the full-rudder slip's
-    with the sideslip angle. Inside the cockpit's loops, outside the chosen position's."""
+    the pilot feels from +1 to -1 g. Slipping (in the manifest) the wind and the outside's airframe cross-fade over
+    the slip angles by equal power, on the sideslip's size. The wind's halves play left and right of the ear (at
+    cockpit_sound_position, if the manifest has it), windward on the side /orientation/side-slip-deg says (positive: the
+    wind from the right): a slip's loops twice, one pair for each sign. Inside the cockpit's loops, outside the chosen
+    position's. A loop's condition is only true inside its own fades (airspeed, sideslip, load factor, brakes and
+    ailerons), since a looped sound holds a source while its condition is true (glider_sources). Not on the angle of
+    attack: the section's users move that fade."""
     from .wind import _e, _v, _ramp_e
     spd = "<property>/velocities/airspeed-kt</property>"
     alpha = "<property>/orientation/alpha-deg</property>"
     brk = "<property>/surface-positions/speedbrake-pos-norm</property>"
     ail = "<property>/surface-positions/left-aileron-pos-norm</property>"
+    pg = "<property>/accelerations/pilot-g</property>"
+    props = dict(kt=spd, slip="<property>/orientation/side-slip-deg</property>", g=pg, brakes=brk, aileron=ail)
+
+    def gate_xml(gate):
+        def span(var, lo, hi):
+            return ([] if lo is None else [f"<greater-than>{props[var]}<value>{lo:g}</value></greater-than>"]) + \
+                   ([] if hi is None else [f"<less-than>{props[var]}<value>{hi:g}</value></less-than>"])
+        spans = [span(*r) for r in gate]
+        if len(spans) == 1:
+            return "".join(spans[0])
+        return _e("or", *[_e("and", *s) if len(s) > 1 else s[0] for s in spans])
     a_st = manifest["stall_alpha_body_deg"]
     a_on = min(manifest.get("separation_alpha_body_deg", a_st - 3.0), a_st - 0.5)
     w_stall = _ramp_e(alpha, a_on, a_st)
@@ -1078,62 +1350,108 @@ def flightgear_glider_xml(manifest, sound_dir="Sounds/pywopwop", cockpit="cockpi
     stalls = sorted({f["condition"] for f in manifest["files"] if f["condition"].startswith("stall")
                      and f.get("load_factor", 1.0) > 0}, key=lambda c: kt.get(c, 0.0))
     inverted = manifest.get("inverted_speeds_kt", [])
-    out = []
+    power = manifest.get("low_speed_power", {})
+    ear = manifest.get("cockpit_sound_position")
+    out, loops = [], []
 
-    def entry(name, view, src, vol):
+    def entry(name, view, src, vol, side=None, gates=()):
         fn = have.get((name, view, src))
         if fn is None:
             return
         cond = ("<property>sim/current-view/internal</property>" if view.startswith("cockpit")
                 else "<not><property>sim/current-view/internal</property></not>")
-        out.append(f"\t\t<{src}>\n\t\t\t<name>pww-{name}-{view}-{src}</name>\n\t\t\t<mode>looped</mode>\n"
+        if gates:
+            cond = _e("and", cond, *[gate_xml(g) for g in gates])
+        loops.append((view, gates))
+        pos = ""
+        if side and ear:
+            pos = (f"\t\t\t<position>\n\t\t\t\t<x>{ear['x']:g}</x>\n\t\t\t\t<y>{ear['y'] * (1 if side == 'left' else -1):g}</y>\n"
+                   f"\t\t\t\t<z>{ear['z']:g}</z>\n\t\t\t</position>\n")
+        out.append(f"\t\t<{src}>\n\t\t\t<name>pww-{name}-{view}-{src}{'-' + side if side else ''}</name>\n"
+                   f"\t\t\t<mode>looped</mode>\n"
                    f"\t\t\t<path>{sound_dir}/{fn}</path>\n\t\t\t<condition>{cond}</condition>\n"
-                   f"\t\t\t<volume><expression>{vol}</expression></volume>\n"
+                   f"\t\t\t<volume><expression>{vol}</expression></volume>\n" + pos
                    + ("" if view.startswith("cockpit") else
                       "\t\t\t<reference-dist>30</reference-dist>\n\t\t\t<max-dist>1500</max-dist>\n")
                    + f"\t\t</{src}>\n")
 
-    def crossfade(pts, view, src, vol):
-        """pts: (condition, airspeed) rising; each loop's equal-power weight by airspeed, times vol(weight)"""
+    def crossfade(pts, view, src, vol, side=None, gates=()):
+        """pts: (condition, airspeed) rising; each loop's equal-power weight by airspeed, times vol(weight); below the
+        lowest the power falls as the speed to the layer's low_speed_power; each running only between its neighbours,
+        and through the gates"""
+        slip = bool(pts) and pts[0][0].startswith("slip")
+        n = power.get(("slip_" if slip else "") + ("wind" if src in ("windward", "leeward") else src))
         for i, (name, v) in enumerate(pts):
-            w = [_ramp_e(spd, pts[i - 1][1] if i else 0.0, v)]
-            if i < len(pts) - 1:
-                w.append(_ramp_e(spd, pts[i + 1][1], v))
-            entry(name, view, src, vol(_e("sqrt", _e("product", *w) if len(w) > 1 else w[0])))
+            rise = _ramp_e(spd, pts[i - 1][1] if i else 0.0, v)
+            fall = _ramp_e(spd, pts[i + 1][1], v) if i < len(pts) - 1 else None
+            if i == 0 and n:
+                w = _e("pow", rise, _v(0.5 * n))
+                w = _e("product", w, _e("sqrt", fall)) if fall else w
+            else:
+                w = _e("sqrt", _e("product", rise, fall) if fall else rise)
+            band = (("kt", pts[i - 1][1] if i else 0.0, pts[i + 1][1] if i < len(pts) - 1 else None),)
+            entry(name, view, src, vol(w), side, (band,) + tuple(gates))
+
+    def wind(pts, view, vol, gates=(), slip=None):
+        """the wind's halves: on their own sides, or in a slip (the angles lo to hi) on the sides the sideslip's sign
+        gives them"""
+        if slip is None:
+            for src, side in (("windward", "right"), ("leeward", "left")):
+                crossfade(pts, view, src, vol, side, gates)
+            return
+        lo, hi = slip
+        wind_right, wind_left = (("slip", lo, hi),), (("slip", None if hi is None else -hi, -lo),)
+        for src, side, sign in (("windward", "right", wind_right), ("windward", "left", wind_left),
+                                ("leeward", "left", wind_right), ("leeward", "right", wind_left)):
+            crossfade(pts, view, src, vol, side, tuple(gates) + (sign,))
     # upright and inverted: by the load factor the pilot feels, +1 to -1 g (equal power)
-    pg = "<property>/accelerations/pilot-g</property>"
     inv_w = _ramp_e(pg, 1.0, -1.0)
     up = _e("sqrt", _e("difference", _v(1.0), inv_w)) if inverted else _v(1.0)
     inv = _e("sqrt", inv_w)
+    g_up, g_inv = (((("g", -1.0, None),),), ((("g", None, 1.0),),)) if inverted else ((), ())
     if inverted:
         a_sti = manifest["inverted_stall_alpha_body_deg"]
         a_oni = manifest.get("inverted_separation_alpha_body_deg", a_sti + 3.0)
         a_oni = max(a_oni, a_sti + 0.5) if a_sti < 0 else a_oni
         w_stall_i = _ramp_e(alpha, a_oni, a_sti)
         not_stall_i = _e("difference", _v(1.0), w_stall_i)
-    slips = [(f"slip_{v:g}kt", v) for v in manifest.get("slip_speeds_kt", [])]
-    if slips:
-        slip_w = _ramp_e(_e("abs", "<property>/orientation/side-slip-deg</property>"), 0.0,
-                         manifest["slip_sideslip_deg"])
-        straight, slipping = _e("sqrt", _e("difference", _v(1.0), slip_w)), _e("sqrt", slip_w)
+    angles = [0.0] + list(manifest.get("slip_angles_deg", []))
+    slips = []                                            # per angle: its loops, its equal-power weight, its angles
+    g_straight = ()
+    if len(angles) > 1:
+        g_straight = (_size("slip", None, angles[1]),)
+        size = _e("abs", "<property>/orientation/side-slip-deg</property>")
+        straight = _e("sqrt", _ramp_e(size, angles[1], 0.0))
+        for i, b in enumerate(angles[1:], 1):
+            w = _ramp_e(size, angles[i - 1], b)
+            w = _e("product", w, _ramp_e(size, angles[i + 1], b)) if i < len(angles) - 1 else w
+            slips.append(([(f"slip{b:g}_{v:g}kt", v) for v in manifest.get("slip_speeds_kt", [])], _e("sqrt", w),
+                          (angles[i - 1], angles[i + 1] if i < len(angles) - 1 else None)))
     for view in (cockpit, exterior):
         speeds = [(f"{v:g}kt", v) for v in manifest["speeds_kt"]]
-        slipped = slips and any((c, view, "wind") in have for c, _ in slips)
-        crossfade(speeds, view, "airframe", lambda w: _e("product", w, not_stall, up))
-        crossfade(([("stall", kt["stall"])] if ("stall", view, "wind") in have and "stall" in kt else []) + speeds,
-                  view, "wind", lambda w: _e("product", w, up, straight) if slipped else _e("product", w, up))
-        if slipped:
-            crossfade(slips, view, "wind", lambda w: _e("product", w, up, slipping))
-        crossfade(speeds, view, "brakes", lambda w: _e("product", w, _e("sqrt", brk)))
-        crossfade(speeds, view, "ailerons", lambda w: _e("product", w, _e("abs", ail)))
-        crossfade([(c, kt.get(c, 0.0)) for c in stalls], view, "airframe", lambda w: _e("product", w, w_stall, up))
+        heard = lambda src: [q for q in slips if any((c, view, src) in have for c, _ in q[0])]
+        slip_air, slip_wind = heard("airframe"), heard("windward")
+        crossfade(speeds, view, "airframe",
+                  lambda w: _e("product", w, not_stall, up, straight) if slip_air else _e("product", w, not_stall, up),
+                  gates=g_up + (g_straight if slip_air else ()))
+        for p, b, (lo, hi) in slip_air:
+            crossfade(p, view, "airframe", lambda w: _e("product", w, not_stall, up, b), gates=g_up + (_size("slip", lo, hi),))
+        wind(([("stall", kt["stall"])] if ("stall", view, "windward") in have and "stall" in kt else []) + speeds, view,
+             lambda w: _e("product", w, up, straight) if slip_wind else _e("product", w, up),
+             gates=g_up + (g_straight if slip_wind else ()))
+        for p, b, window in slip_wind:
+            wind(p, view, lambda w: _e("product", w, up, b), gates=g_up, slip=window)
+        crossfade(speeds, view, "brakes", lambda w: _e("product", w, _e("sqrt", brk)), gates=((("brakes", 0.0, None),),))
+        crossfade(speeds, view, "ailerons", lambda w: _e("product", w, _e("abs", ail)), gates=(_size("aileron", 0.0, None),))
+        crossfade([(c, kt.get(c, 0.0)) for c in stalls], view, "airframe", lambda w: _e("product", w, w_stall, up), gates=g_up)
         if "stall" not in kt:
-            entry("stall", view, "wind", w_stall)
+            entry("stall", view, "windward", w_stall, "right")
+            entry("stall", view, "leeward", w_stall, "left")
         if inverted:
             ispeeds = [(f"inv_{v:g}kt", v) for v in inverted]
-            crossfade(ispeeds, view, "airframe", lambda w: _e("product", w, not_stall_i, inv))
-            crossfade([("stall_inv", kt["stall_inv"])] + ispeeds, view, "wind", lambda w: _e("product", w, inv))
-            crossfade([("stall_inv", kt["stall_inv"])], view, "airframe", lambda w: _e("product", w, w_stall_i, inv))
+            crossfade(ispeeds, view, "airframe", lambda w: _e("product", w, not_stall_i, inv), gates=g_inv)
+            wind([("stall_inv", kt["stall_inv"])] + ispeeds, view, lambda w: _e("product", w, inv), gates=g_inv)
+            crossfade([("stall_inv", kt["stall_inv"])], view, "airframe", lambda w: _e("product", w, w_stall_i, inv), gates=g_inv)
     return ("<?xml version=\"1.0\"?>\n<!-- generated by pywopwop: the airframe's sound of the " + manifest["glider"]
             + "; merge into the aircraft's sound file -->\n<PropertyList>\n\t<fx>\n" + "".join(out)
-            + "\t</fx>\n</PropertyList>\n")
+            + "\t</fx>\n</PropertyList>\n"), loops
