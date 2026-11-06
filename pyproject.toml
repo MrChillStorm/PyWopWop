@@ -27,7 +27,7 @@ pywopwop = "pywopwop.cli:main"
 include = ["pywopwop*"]
 
 [tool.setuptools.package-data]
-pywopwop = ["presets/*.toml", "presets/gliders/*.toml", "presets/engines/*.toml", "presets/apu/*.toml", "presets/airfoils/*.json", "presets/airfoils/*.dat"]
+pywopwop = ["presets/*.toml", "presets/gliders/*.toml", "presets/propellers/*.toml", "presets/engines/*.toml", "presets/apu/*.toml", "presets/airfoils/*.json", "presets/airfoils/*.dat"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

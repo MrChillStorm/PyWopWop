@@ -641,6 +641,49 @@ def slip():
     num("NSlPowSlip", s["power"]["slip_wind"])
 
 
+def props():
+    p = R("props")
+    sc, cr = p["schedule"], p["cruise"]
+    err = lambda rows, a, b: [100.0 * (r[a] / r[b] - 1.0) for r in rows if abs(r[b]) > 10]
+    num("NXpPitch", p["pitch"])
+    pw = [100.0 * (r["model_kw"] / r["kw"] - 1.0) for r in sc]
+    th = [100.0 * (r["model_lbf"] / r["lbf"] - 1.0) for r in sc]
+    num("NXpPowerLo", min(pw), "%+.0f")
+    num("NXpPowerHi", max(pw), "%+.0f")
+    num("NXpThrustLo", min(th), "%+.0f")
+    num("NXpThrustHi", max(th), "%+.0f")
+    good = [r for r in cr if r["beta"] <= 22]
+    tight = [100.0 * (r["model_lbf"] / r["lbf"] - 1.0) for r in good]
+    num("NXpCruiseLo", min(tight), "%+.0f")
+    num("NXpCruiseHi", max(tight), "%+.0f")
+    num("NXpCruiseHigh", max(100.0 * (r["model_lbf"] / r["lbf"] - 1.0) for r in cr if r["beta"] > 22), "%+.0f")
+    a = np.array(p["angle"])
+    d = np.array(p["bpf"]) - np.array(p["lh"])
+    plane = (a >= 85) & (a <= 115)
+    wide = (a >= 57) & (a <= 120)
+    num("NXpPlaneMean", float(d[plane].mean()), "%+.1f")
+    num("NXpPlaneMax", float(np.abs(d[plane]).max()))
+    num("NXpWideRms", float(np.sqrt(np.mean(d[wide] ** 2))))
+    num("NXpBpf", float(p["bpf"][list(p["angle"]).index(95)]))
+    num("NXpBpfLh", float(p["lh"][list(p["angle"]).index(95)]))
+    num("NXpBpfRh", float(p["rh"][list(p["angle"]).index(95)]))
+    num("NXpHarmTwo", p["harmonics"][1], "%.0f")
+    num("NXpHarmThree", p["harmonics"][2], "%.0f")
+    hz = np.array(p["test_hz"])
+    e = np.array(p["model_db"]) - np.array(p["test_db"])
+    hi, lo = hz >= 2000, hz <= 1000
+    num("NXpHighLo", float(e[hi].min()), "%+.0f")
+    num("NXpHighHi", float(e[hi].max()), "%+.0f")
+    num("NXpLowLo", float(e[lo].min()), "%+.0f")
+    num("NXpLowHi", float(e[lo].max()), "%+.0f")
+    num("NXpMotorLo", min(p["under"]), "%.0f")
+    num("NXpMotorHi", max(p["under"]), "%.0f")
+    num("NXpLoops", p["loops"], "%.0f")
+    num("NXpSources", p["sources"], "%.0f")
+    num("NXpUpLo", min(p["upwash"]), "%.0f")
+    num("NXpUpHi", max(p["upwash"]), "%.0f")
+
+
 def bench():
     b = R("bench")
     txt = "\n".join(b["lines"])
@@ -677,7 +720,7 @@ def before_after():
 
 if __name__ == "__main__":
     os.makedirs(TAB, exist_ok=True)
-    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, slip, bench, before_after):
+    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, slip, props, bench, before_after):
         try:
             fn()
         except (FileNotFoundError, KeyError) as e:

@@ -162,3 +162,26 @@ ROLL_G = [(0, 1.4), (0.5, 1.6), (1, 1.8), (1.5, 2.3), (2, 2.8), (2.5, 2.9), (3, 
           (11, 1.0), (11.5, 1.5), (12, 1.6), (12.5, 2.8), (13, 3.3), (13.5, 3.8), (14, 4.0), (14.5, 4.0), (15, 3.0), (15.5, 1.8),
           (16, 1.6), (16.5, 2.6), (17, 3.5), (17.5, 4.3), (18, 4.5), (18.5, 4.5), (19, 4.6)]
 ROLL_GAPS = [(9.5, 12.0), (14.8, 17.2)]
+
+
+# X-57 high-lift propeller in NASA's Low Speed Aeroacoustic Wind Tunnel (NTRS 20210016834, fig. 16), 4800 rpm, 75 KEAS, read off the
+# figure to about 1 dB. The array runs along the tunnel, 3.54 m from the hub at its nearest. The left-handed blades are the
+# heavier batch, which NASA's blade element model matches; the right-handed made 16 % less torque
+X57_ANGLE = [53, 57, 61.5, 66, 70.5, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 128, 131, 133, 136, 138.5, 141, 144, 147, 149.5, 152]
+X57_BPF_LH = [66.4, 71.3, 74.6, 77.0, 79.0, 80.0, 80.4, 80.0, 79.3, 79.4, 79.7, 79.3, 78.0, 75.6, 72.4, 66.0, 63.5, 65.2, 67.2, 70.4,
+              69.6, 71.2, 71.1, 70.8, 70.5, 68.8]
+X57_BPF_RH = [58.8, 61.0, 67.0, 70.1, 73.4, 75.0, 75.3, 74.5, 73.0, 71.7, 72.1, 73.5, 74.4, 73.3, 70.7, 64.0, 53.6, 52.3, 60.9, 65.4,
+              64.0, 65.6, 65.7, 64.0, 64.5, 61.5]
+# the same figure's spectrum at 95 deg, in 10 Hz bands, between its tones: the propeller and the empty tunnel at 75 KEAS
+X57_BROADBAND_HZ = [500, 1000, 2000, 3000, 5000, 10000, 20000]
+X57_BROADBAND_DB = [51, 48, 47, 44, 41, 36, 31]
+X57_BACKGROUND_DB = [46, 40, 36, 35, 33, 26, 19]
+
+# NASA's final high-lift tables (ANLYS-CEPT-023, last updated 8 October 2021): KEAS, rpm, Nm, kW, lbf, pressure altitude ft. Airspeed
+# mode (appendix B tables 1 to 4) at 2289 ft, Fixed mode (appendix C tables 14 to 16) at sea level
+X57_SCHEDULE = [[35, 3744, 11.7, 4.6, 30.8, 2289], [50, 4944, 20.5, 10.6, 52.6, 2289], [58, 5020, 20.5, 10.8, 50.4, 2289],
+                [65, 4704, 16.6, 8.2, 38.0, 2289], [75, 4284, 11.1, 5.0, 22.2, 2289], [85, 3925, 5.5, 2.3, 8.9, 2289],
+                [35, 4800, 21.4, 10.8, 60.2, 0], [58, 4800, 19.9, 10.0, 48.6, 0], [75, 4800, 17.5, 8.8, 38.2, 0], [90, 4800, 14.2, 7.1, 27.9, 0]]
+# NASA's cruise propeller CFD, 2500 ft, 2250 rpm (Mod-III Power On CFD Results): ft/s, blade pitch deg, lbf, kW
+X57_CRUISE = [[75.0, 18, 266.0, 45.0], [75.0, 26, 360.3, 73.4], [112.5, 18, 194.2, 38.9], [112.5, 26, 338.4, 77.9],
+              [150.0, 18, 96.8, 24.0], [150.0, 22, 194.6, 48.3], [150.0, 26, 284.5, 74.7]]

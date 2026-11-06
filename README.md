@@ -188,6 +188,34 @@ faces the flow instead of trailing it, its boundary layer thinner and the air ov
 some 40 dB below the canopy's wind: what a pilot feels and hears of
 buffet through the structure is not in the model.
 
+## Propeller aircraft
+
+`pywopwop/propeller.py` renders aircraft whose discs have speeds and loads of their own: each group of discs, its motors and
+its spinners separately, so a stopped motor or a failed contactor drops out of the mix. The preset `x57` (in
+`presets/propellers`) is NASA's X-57 Mod III and IV, from its OpenVSP model: two wingtip cruise propellers and twelve folding
+high-lift propellers in four contactor groups.
+
+```bash
+python -m pywopwop.propeller x57 -o out/x57
+```
+
+| Source | Model |
+|---|---|
+| Blades | the rotor model, rigid blades in the flow along the shaft, sections by NeuralFoil; fixed pitch finds its thrust, the cruise propellers' thrust is the condition's. BPM's angle runs from zero lift, for the high-lift blades' strong camber |
+| Discs ahead of the wing | the wing's bound vortex tilts the flow into each disc; its unsteady lift under their vortices is the tiltrotors' wing model, untested here |
+| Unsynchronised motors | each disc of a group a revolution per loop off the next, so their tones beat |
+| Motors | the electrical frequency's harmonics and the slots' passing, at an assumed level: nothing measured. The inverters switch near 40 kHz, out of hearing. At that level they stand some 40 dB(A) under the propellers in the cockpit, so their layer can be raised without touching the rest |
+| Spinners | the two tones NASA's array placed on the high-lift spinner, as measured |
+| Cockpit | at the left seat's head through the P2006T's cabin walls, estimated, not through a fuselage's wall patches |
+
+The bank covers each group over airspeed and rotor speed, the cruise propellers also over a thrust coefficient from
+regenerating to climbing. `pywopwop-props.xml` cross-fades them by equal power, each pitched by its disc's speed, and each loop's
+condition is only true inside its fades: at most 42 run at once. Its properties (`PROPERTIES` in `propeller.py`) are proposals for the flight model:
+`/fdm/jsbsim/x57/cruise[n]/rpm`, `ct` and `torque-norm`, `/fdm/jsbsim/x57/hl[n]/rpm` and `torque-norm`.
+
+Mods II to IV never flew. What could be checked: NASA's schedule and CFD for the loads, and one isolated high-lift propeller in
+NASA's tunnel. What couldn't: the cruise propeller's noise, the motors, the cabin, and the discs on the wing together.
+
 ## Turbine engines
 
 `pywopwop engine` and `engine-bank` compute a turboshaft's sound from its thermodynamic state: starts, shutdowns
@@ -341,6 +369,14 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   misreads by 10 to 20 kt. The model's hiss hardly depends on where the ear is (0.3 dB over 10 cm). Leaks through the
   canopy's seals and vents, driven by the lift and the slip, would grow so; so might the camera's microphone, and one
   recording can't tell them apart. Nothing in it starts or stops with the ailerons, as in the model.
+- Against one X-57 high-lift propeller in NASA's Low Speed Aeroacoustic Wind Tunnel (4800 rpm, 75 KEAS, an array 3.54 m away,
+  read off the published figure; nothing in the noise model fitted to it): the blade passing tone, 76.4 dB in the propeller's
+  plane, lies between the test's two batches of blades, 79.4 and 71.7 dB: 3.4 dB under the left-handed ones, 4.6 dB at most from 85
+  to 115 degrees, 5.4 dB rms from 57 to 120. The broadband stands 2 to 14 dB under from 2 to 20 kHz, and 16 to 23 dB under at
+  1 kHz and below, where NASA's array finds the blade roots and the test stand's strut. The harmonics above the first are far too
+  low: a rigid disc in steady flow makes almost none. At one pitch fitted to NASA's final tables (20.0 degrees; 27.35 as drawn, the
+  hinge explaining 2.5 to 4.5) its power lands 10 % under to 4 % over them and its thrust 24 % under to 15 % over, the largest
+  errors where it is small; the cruise propeller's thrust 2 to 15 % over NASA's CFD up to 22 degrees of pitch, 29 % at worst at 26.
 - Against an MV-22B recorded in airplane-mode cruise (a video: behind the pilots facing the instrument panel, and at a
   cabin window beside a nacelle; the camera's gain and response unknown, so the checks are ratios at one frequency:
   tones over the broadband beside them, and how the sound pulses with the blades): the proprotors pass their blades at
@@ -453,7 +489,8 @@ airplane mode from given trims; the conversion between them is not modelled. The
 nacelles below 30 degrees only, by strip theory, the blades' vortices passing through it uncut; in a hover its
 fountain is the XV-15's inflow deficit scaled by the chord (a model's probes found the load falling, jumping and
 falling again over the wing, which isn't modelled), and its switching from rotor to rotor only each revolution's
-strength. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
+strength. A propeller aircraft's blades are rigid and each disc takes the wing's upwash as one angle, with no slipstream from its neighbours,
+no fuselage's wall patches in its cockpit, and its motors' level assumed. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
 laws for the near wakes on the leeward wing and tail, and the shell's mass is assumed; the slip's rolling moment, held by
 the ailerons, isn't modelled, and neither is the wing's lift falling as the glider banks. A rotorcraft's cockpit
 wind is an attached boundary layer's: no separated flow round the windscreen's frame, no leaks' own flow noise, no

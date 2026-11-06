@@ -508,6 +508,34 @@ def slip():
     save(fig, "slip")
 
 
+def props():
+    p = res("props")
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.05))
+    ax = axs[0]
+    ax.plot(p["angle"], p["lh"], "o", mfc="none", mec=C_TEST, ms=3.2, mew=0.8, label="left-handed blades")
+    ax.plot(p["angle"], p["rh"], "s", mfc="none", mec=C_REF, ms=2.8, mew=0.7, label="right-handed")
+    ax.plot(p["angle"], p["bpf"], "-", color=C_MOD, lw=0.9, label="model")
+    ax.set_ylim(40, 90)
+    ax.set_xlabel("angle from upstream, deg")
+    ax.set_ylabel("blade passing tone, dB")
+    ax.legend(loc="lower center", ncol=1)
+    tag(ax, "a")
+    ax = axs[1]
+    f = np.array(p["f"])
+    k = (f >= 300) & (f <= 20000)
+    ax.semilogx(p["test_hz"], p["test_db"], "o", mfc="none", mec=C_TEST, ms=3.2, mew=0.8, label="tunnel, between the tones")
+    ax.semilogx(p["test_hz"], p["background_db"], "x", color=C_REF, ms=3.2, mew=0.7, label="empty tunnel")
+    ax.semilogx(f[k], np.array(p["per10"])[k], "-", color=C_MOD, lw=0.9, label="model")
+    ax.set_xticks([500, 1000, 2000, 5000, 10000, 20000], ["500", "1k", "2k", "5k", "10k", "20k"])
+    ax.set_xticks([], minor=True)
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("level in 10 Hz, dB")
+    ax.legend(loc="lower left")
+    tag(ax, "b")
+    fig.tight_layout(w_pad=1.2)
+    save(fig, "props")
+
+
 def mv22():
     m = res("mv22")
     fig, axs = plt.subplots(1, 3, figsize=(W2, 2.05))
@@ -579,7 +607,7 @@ def ask21():
 
 
 ALL = dict(verify=verify, rotors=rotors, torsion=torsion, stand=stand, hart2_loads=hart2_loads, hart2_map=hart2_map, bvi=bvi, texture=texture, fountain=fountain,
-           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21, slip=slip)
+           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21, slip=slip, props=props)
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

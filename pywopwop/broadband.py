@@ -20,6 +20,7 @@ class BroadbandOptions:
     turbulence_ms: float = 0.8      # rms turbulence velocity the blades meet (inflow noise), m/s
     turbulence_scale: float = 2.0   # integral length scale, m
     mechanisms: tuple = ("tbl", "blunt", "tip", "lbl", "inflow", "bwi")
+    from_zero_lift: bool = False    # BPM's angle from the section's zero lift, not its chord: a strongly cambered section
     f_lo: float = 20.0
     f_hi: float = 20000.0
 
@@ -69,8 +70,8 @@ def spectral_history(point, observer, opts=None):
     U_t = aero.UT[idx]
     U_p = aero.UP[idx]
     U = np.sqrt(U_t ** 2 + U_p ** 2)
-    alpha = np.degrees(np.abs(aero.alpha[idx]))
-    alpha = np.minimum(alpha, 25.0)
+    alpha = np.degrees(aero.alpha[idx]) - (af.alpha0_deg if opts.from_zero_lift else 0.0)
+    alpha = np.minimum(np.abs(alpha), 25.0)
     forward = U_t > 1.0             # reverse flow: no trailing-edge noise of the usual kind
     chord = aero.chord[None, :] * np.ones_like(U)
     span = (aero.dx * R)[None, :] * np.ones_like(U)

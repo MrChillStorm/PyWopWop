@@ -9,7 +9,7 @@ rotor's noise on NASA's test stand), hart2 (the
 HART II rotor's loads and noise), bvi (slap's level against the descent, on HART II and the UH-60A), texture (loops against recordings),
 fountain (the XV-15 over ground boards), outside (the MV-22 against the published table), engines (cycles, levels), tones (the
 engines' and gearbox's tones in UH-60 recordings), cabin (the walls), wind, mv22 (the cockpit against its recording), mv22_terms (the
-same, each physical term taken out), ask21 (the gliders' recordings), slip (the glider slipping), bench (timings: run on a quiet machine).
+same, each physical term taken out), ask21 (the gliders' recordings), slip (the glider slipping), props (the X-57's propellers), bench (timings: run on a quiet machine).
 
 texture, tones, mv22 and ask21 read recordings (refs/recordings, kept out of the repository) and the FlightGear aircrafts' sounds; the
 results they leave are what the report needs, so it can be rebuilt without them."""
@@ -1334,6 +1334,56 @@ def slip():
                       lift_rms=float(np.sqrt(16 * 3 * 2.753e-4 / (4 * np.pi * 0.2 ** 2 * 5))), power=low_speed_power(g, 40.0)))
 
 
+def props():
+    """the X-57's propellers: the high-lift prop against NASA's schedule and its tunnel, the cruise prop against NASA's CFD"""
+    from dataclasses import replace
+    from pywopwop import propeller as P, synth, broadband
+    from pywopwop.aero import AeroOptions
+    from pywopwop.atmosphere import Atmosphere
+    from pywopwop.model import KT
+    ac = P.load_prop_aircraft("x57")
+    hl = next(r for r in ac.rotors if r.name == "hl_7")
+    o = AeroOptions(n_radial=24, n_azimuth=180, bvi=False, elastic=False)
+    atm = Atmosphere(762.0)
+    sched, cruise = [], []
+    for kt, rpm, nm, kw, lbf, hp in D.X57_SCHEDULE:
+        om = rpm * 2 * np.pi / 60
+        air = Atmosphere(hp * 0.3048)
+        a, _ = P._solved_at_pitch(hl, om, kt * KT / np.sqrt(air.rho / 1.225), np.radians(-89.9), np.radians(ac.pitch_deg), air, o, max(lbf, 5) * 4.448)
+        sched.append(dict(kt=kt, rpm=rpm, nm=nm, kw=kw, lbf=lbf, model_kw=a.torque * om / 1e3, model_lbf=a.thrust / 4.448, model_nm=a.torque))
+    om = 2250 * 2 * np.pi / 60
+    for v, beta, lbf, kw in D.X57_CRUISE:
+        a, _ = P._solved_at_pitch(ac.rotors[0], om, v * 0.3048, np.radians(-88.0), np.radians(beta), atm, o, lbf * 4.448)
+        cruise.append(dict(v=v, beta=beta, kw=kw, lbf=lbf, model_kw=a.torque * om / 1e3, model_lbf=a.thrust / 4.448))
+    alone = replace(ac, rotors=[replace(hl, position=(0.0, 0.0, 0.0))], wing=[[0.0, -5.0, 0.5, 0.0, 0.05], [1.0, -5.0, 0.5, 0.0, 0.05]])
+    alone.pitch_deg = ac.pitch_deg
+    pt = P.operate_props(alone, P.PropCondition("tunnel", 75.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4800.0), AeroOptions(bvi=False, elastic=False)).points[0]
+    q = synth.Quality.get("normal")
+    bo = broadband.BroadbandOptions(n_azimuth=q.bb_azimuth, turbulence_ms=0.3, turbulence_scale=0.2, from_zero_lift=True)
+    cache, bpf, h95 = {}, [], None
+    B = hl.blades
+    for th in D.X57_ANGLE:
+        t = np.radians(th)
+        r = 3.54 / np.sin(t)
+        s = synth.rotor_sound(pt, r * np.array([np.cos(t), 0.0, -np.sin(t)]), q, bo, th == 95, cache, None)
+        amp = lambda k: float(20 * np.log10(2 * abs(B * (s.H_thickness + s.H_loading)[k * B]) / s.n / np.sqrt(2) / 2e-5))
+        bpf.append(amp(1))
+        if th == 95:
+            h95, harm = s.history, [amp(k) for k in (1, 2, 3)]
+    f = np.array(h95.f)
+    m = h95.msp.mean(0)
+    per10 = 10 * np.log10(m / 4e-10 * 10.0 / (f * (2 ** (1 / 6) - 2 ** (-1 / 6))))
+    m = json.load(open(os.path.join(ROOT, "out", "x57", "manifest.json")))
+    level = lambda c, g, s, o: next(f["dba"] for f in m["files"] if (f["condition"], f["group"], f["source"], f["observer"]) == (c, g, s, o))
+    under = [level("100kt_2250rpm_ct0.05", "cruise_left", "prop", "cockpit") - level("motor", "cruise_left", "motor", "cockpit"),
+             level("60kt_4800rpm", "hl_b_left", "prop", "cockpit") - level("motor", "hl_b_left", "motor", "cockpit")]
+    dump("props", dict(schedule=sched, cruise=cruise, under=under, sources=m["max_sources"]["cockpit"], loops=len(m["files"]), angle=D.X57_ANGLE, bpf=bpf, lh=D.X57_BPF_LH, rh=D.X57_BPF_RH, harmonics=harm,
+                       thrust_lbf=pt.aero.thrust / 4.448, power_kw=pt.aero.torque * pt.omega / 1e3, f=f, per10=per10,
+                       test_hz=D.X57_BROADBAND_HZ, test_db=D.X57_BROADBAND_DB, background_db=D.X57_BACKGROUND_DB,
+                       model_db=[float(np.interp(np.log(x), np.log(f), per10)) for x in D.X57_BROADBAND_HZ],
+                       pitch=ac.pitch_deg, upwash=[P.wing_upwash_deg(ac, r, 1.5) for r in ac.rotors if r.name.startswith("hl_")]))
+
+
 def bench():
     lines = []
     validation.benchmark(out=lines.append)
@@ -1349,7 +1399,7 @@ def bench():
 
 
 STAGES = dict(verify=verify, rotors=rotors, stand=stand, hart2=hart2, bvi=bvi, texture=texture, fountain=fountain, outside=outside, engines=engines, tones=tones, cabin=cabin,
-              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, slip=slip, bench=bench)
+              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, slip=slip, props=props, bench=bench)
 
 if __name__ == "__main__":
     import pywopwop
