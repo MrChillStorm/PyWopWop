@@ -216,6 +216,41 @@ condition is only true inside its fades: at most 42 run at once. Its properties 
 Mods II to IV never flew. What could be checked: NASA's schedule and CFD for the loads, and one isolated high-lift propeller in
 NASA's tunnel. What couldn't: the cruise propeller's noise, the motors, the cabin, and the discs on the wing together.
 
+## Tyres
+
+`pywopwop/tyre.py` makes the sound of an aircraft's tyres rolling on a paved runway: each wheel's loops by ground speed,
+in the cockpit and 30 m to the side, and a FlightGear section keyed to each wheel's own rolling speed and load. It has no
+command yet. From Python, the X-57's three tyres at its propeller bank's gains:
+
+```python
+import json
+from pywopwop import tyre
+from pywopwop.propeller import load_prop_aircraft
+
+tyres = [dict(name="nose", gear=0, position=(2.463, 0.0, -1.172), width_m=0.1257, diameter_m=0.3607, static_compression_ft=0.244),
+         dict(name="left_main", gear=1, position=(-0.437, 1.0, -1.172), width_m=0.16, diameter_m=0.4445, static_compression_ft=0.244),
+         dict(name="right_main", gear=2, position=(-0.437, -1.0, -1.172), width_m=0.16, diameter_m=0.4445, static_compression_ft=0.244)]
+gain = json.load(open("out/x57/manifest.json"))["gain_db"]
+tyre.make_tyre_bank(load_prop_aircraft("x57"), "out/x57_tyres", tyres, gain, "p2006t")
+```
+
+| Part | Model |
+|---|---|
+| Rolling noise | a measured truck tyre's (Hoever 2014), scaled to the tyre's width and diameter, to the speed (the tread's vibration as its square, the air pumped in and out of the contact as its fourth power) and to the runway's texture |
+| Outside | each wheel from its contact, over a hard ground |
+| Cockpit | through the cabin's walls, and through the structure, which is most of it: a transfer taken from a recorded landing in the same airframe (`STRUCTURES`: an ASK 21's and a P2006T's, the X-57's airframe) |
+| Loops | stationary Gaussian noise: a rolling tyre has no tone and no thump once a turn, in the recordings as in the loops |
+
+`pywopwop-tyres.xml` cross-fades each wheel's loops by equal power over `/gear/gear[n]/rollspeed-ms`, each loop's condition
+true only inside its speeds and with weight on the wheel (`wow`): at most two loops per wheel and view. A wheel fades out as
+`compression-norm` (JSBSim's, in feet) falls under a quarter of its static compression.
+
+What could be checked: outside, the one light aircraft measurement found (three towed 5.00-5s, 30 m to the side, 60 dB(A);
+the model 60.5). In a cockpit, the camera's gain controls in the recordings leave only the moment of touchdown to read, so
+each airframe's transfer rests on one landing, and the P2006T's touchdown speed isn't in the picture. How the cockpit's level
+grows with speed is the model's alone. Not modelled: grass, concrete, wet runways, the touchdown's chirp, brakes, the nose
+wheel's thump. `tools/tyre_recordings.py` (the report's stage `tyres`) reproduces every number from the recordings.
+
 ## Turbine engines
 
 `pywopwop engine` and `engine-bank` compute a turboshaft's sound from its thermodynamic state: starts, shutdowns
@@ -336,6 +371,8 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
 - Loops: nothing above the band limit (to numerical precision) and no step at the loop point.
 - The FlightGear section's volumes, evaluated as SimGear does: the loops add up to one at any airspeed, vertical
   speed and height.
+- Tyres: the truck tyre they're scaled from comes back within 1 dB at 1 m, and three towed 5.00-5s 30 m to the side
+  within 3 dB of the 60 dB(A) measured (the model 60.5).
 - Wind: the wall pressure within Bies's range of the dynamic pressure; the FlightGear section's loops add up to the
   altitude's amplitude around the equivalent airspeed.
 - Airplane mode: the trim follows the preset's trims; the MV-22B's rotor power within 1.2 % of its flight model's
@@ -490,7 +527,8 @@ nacelles below 30 degrees only, by strip theory, the blades' vortices passing th
 fountain is the XV-15's inflow deficit scaled by the chord (a model's probes found the load falling, jumping and
 falling again over the wing, which isn't modelled), and its switching from rotor to rotor only each revolution's
 strength. A propeller aircraft's blades are rigid and each disc takes the wing's upwash as one angle, with no slipstream from its neighbours,
-no fuselage's wall patches in its cockpit, and its motors' level assumed. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
+no fuselage's wall patches in its cockpit, and its motors' level assumed. A tyre's level in a cockpit rests on one recorded
+landing per airframe and grows with speed as the model says; tyres roll on asphalt only. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
 laws for the near wakes on the leeward wing and tail, and the shell's mass is assumed; the slip's rolling moment, held by
 the ailerons, isn't modelled, and neither is the wing's lift falling as the glider banks. A rotorcraft's cockpit
 wind is an attached boundary layer's: no separated flow round the windscreen's frame, no leaks' own flow noise, no

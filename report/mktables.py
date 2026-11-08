@@ -684,6 +684,46 @@ def props():
     num("NXpUpHi", max(p["upwash"]), "%.0f")
 
 
+def tyres():
+    t = R("tyres")
+    o, a, p, x = t["outside"], t["ask21"], t["p2006t"], t["x57"]
+    num("NTyRef", o["reference_1m"]["model"])
+    num("NTyRefMeas", o["reference_1m"]["measured"])
+    num("NTyCar", o["car_80kmh_7m5"]["model"])
+    num("NTyTow", o["towed_aircraft_55mph_30m"]["model_smooth"])
+    num("NTyTowAsph", o["towed_aircraft_55mph_30m"]["model_asphalt"])
+    hz = np.array(a["hz"])
+    d = np.abs(np.array(a["touchdown"]) - np.array(a["at_44kt"]))
+    num("NTyAskAgree", float(d.mean()))
+    num("NTyAskAgreeMax", float(d.max()), "%.0f")
+    num("NTyHiStep", abs(a["hi_before_after_db"][1] - a["hi_before_after_db"][0]))
+    r = a["roll_over_2_5khz_db_at_44_37_28_18kt"]
+    num("NTyRatioSpread", max(r) - min(r))
+    d = (np.array(a["module"]) - np.array(p["module"]))[hz > 240]
+    num("NTyLessLo", float(d.min()), "%.0f")
+    num("NTyLessHi", float(d.max()), "%.0f")
+    num("NTyRiseLow", p["rise_vs_low_db"])
+    num("NTyRiseHigh", p["rise_vs_high_db"])
+    num("NTyThrottles", abs(p["throttles_db"]), "%.0f")
+    num("NTyLine", abs(p["line_557hz_change_db"]))
+    num("NTyLater", float(np.mean(np.array(p["later_three_wheels_54kt"]) - np.array(p["module"]))))
+    num("NTySpeed", float(max(np.max(np.abs(np.array(p[k]) - np.array(p["half_58kt"]))) for k in ("half_55kt", "half_62kt"))))
+    num("NTyApproach", p["cabin_dba"]["approach_all"], "%.0f")
+    k = p["kurtosis_by_second_380_399"]
+    steady = k[11:] + a["kurtosis_44_37_28kt"]
+    num("NTyKurtLo", min(steady))
+    num("NTyKurtHi", max(steady))
+    num("NTyThump", max(k))
+    num("NTyKurtLoop", t["loop_kurtosis"])
+    at = lambda key, kt: x[key][x["kt"].index(kt)]
+    for name, key in (("Cock", "cockpit"), ("CockAsk", "cockpit_ask21"), ("Side", "side"), ("Wind", "wind"), ("Air", "airborne")):
+        num("NTy%sThirty" % name, at(key, 30), "%.0f")
+        num("NTy%sSixty" % name, at(key, 60), "%.0f")
+    num("NTyPow", x["low_speed_power"])
+    rows = ["%.0f & %s & %s & %s" % (h, f(u, "%.1f"), f(v, "%.1f"), f(u - v, "%.1f")) for h, u, v in zip(hz, a["module"], p["module"])]
+    write("tyres", tabular("rrrr", "Band, Hz & ASK~21 & P2006T & difference", rows))
+
+
 def bench():
     b = R("bench")
     txt = "\n".join(b["lines"])
@@ -720,7 +760,7 @@ def before_after():
 
 if __name__ == "__main__":
     os.makedirs(TAB, exist_ok=True)
-    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, slip, props, bench, before_after):
+    for fn in (verify, rotors, stand, hart2, bvi, texture, fountain, outside, engines, cabin, cockpit, flight, prue, core, mv22, ask21, roar, slip, props, tyres, bench, before_after):
         try:
             fn()
         except (FileNotFoundError, KeyError) as e:

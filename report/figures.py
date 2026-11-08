@@ -606,8 +606,50 @@ def ask21():
     save(fig, "ask21")
 
 
+def tyres():
+    t = res("tyres")
+    a, p, x = t["ask21"], t["p2006t"], t["x57"]
+    fig, axs = plt.subplots(1, 3, figsize=(W2, 2.05))
+    ax = axs[0]
+    hz = np.array(a["hz"])
+    ax.semilogx(hz, a["module"], "-", color=C_REF, lw=0.9, label="ASK 21")
+    ax.semilogx(hz, a["touchdown"], "o", mfc="none", mec=C_REF, ms=2.6, mew=0.6, label="its two calibrations")
+    ax.semilogx(hz, a["at_44kt"], "o", mfc="none", mec=C_REF, ms=2.6, mew=0.6)
+    pm = np.array(p["module"])
+    ax.fill_between(hz, pm - 3, pm + 3, color=C_MOD, alpha=0.15, lw=0, label="a quarter to all")
+    ax.semilogx(hz, pm, "-", color=C_MOD, lw=1.0, label="P2006T, half")
+    ax.set_xticks([125, 250, 500, 1000, 2000], ["125", "250", "500", "1k", "2k"])
+    ax.set_xticks([], minor=True)
+    ax.set_xlabel("frequency, Hz")
+    ax.set_ylabel("cockpit less tyre power, dB")
+    ax.legend(loc="lower left")
+    tag(ax, "a")
+    ax = axs[1]
+    tt = np.array(p["balance_t"]) - p["touchdown_s"]
+    k = tt >= -7.0
+    ax.step(tt[k], np.array(p["balance_db"])[k], where="post", color=C_TEST, lw=0.9)
+    ax.axvline(0.0, color=C_MOD, lw=0.8, ls="--")
+    ax.text(0.3, 0.92, "touchdown", color=C_MOD, fontsize=7, transform=ax.get_xaxis_transform())
+    ax.set_xlabel("time from touchdown, s")
+    ax.set_ylabel("150--1700 Hz against the rest, dB")
+    tag(ax, "b  P2006T")
+    ax = axs[2]
+    kt = x["kt"]
+    ax.plot(kt, x["cockpit"], "-", color=C_MOD, label="cockpit, P2006T's")
+    ax.plot(kt, x["cockpit_ask21"], "--", color=C_REF, label="with the ASK 21's")
+    ax.plot(kt, x["wind"], ":", color=C_TEST, label="cockpit wind")
+    ax.plot(kt, x["side"], "-", color=C_OLD, label="30 m to the side")
+    ax.set_ylim(0, 105)
+    ax.set_xlabel("ground speed, kt")
+    ax.set_ylabel("three tyres, dB(A)")
+    ax.legend(loc="lower right")
+    tag(ax, "c  X-57")
+    fig.tight_layout(w_pad=0.8)
+    save(fig, "tyres")
+
+
 ALL = dict(verify=verify, rotors=rotors, torsion=torsion, stand=stand, hart2_loads=hart2_loads, hart2_map=hart2_map, bvi=bvi, texture=texture, fountain=fountain,
-           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21, slip=slip, props=props)
+           outside=outside, engines=engines, cabin=cabin, wind=wind, cockpit=cockpit, flight=flight, combustion=combustion, mv22=mv22, ask21=ask21, slip=slip, props=props, tyres=tyres)
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

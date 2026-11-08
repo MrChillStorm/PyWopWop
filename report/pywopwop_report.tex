@@ -100,7 +100,8 @@ NASA TM-73748, TM-88971~\cite{karchmer,krejsa}; AIAA 2025-3896~\cite{nesbitt} & 
 NACA 1329~\cite{naca} & a jet's sound power and spectral peak \\
 NASA TM-105805~\cite{ge} & T700 steady states from GE's simulation \\
 NASA CR-2005-213938~\cite{tu144} & wall pressure spectra in flight, Tu-144LL \\
-Video recordings & UH-60 starts and flight, MV-22B in cruise, ASK~21 aerobatics (Section~\ref{sec:ref}) \\
+Hoever~\cite{hoever}; US 11\,198\,519~\cite{seeley} & a truck tyre's rolling noise at 1\,m and road textures, measured; a towed light aircraft's rolling noise 30\,m to the side \\
+Video recordings & UH-60 starts and flight, MV-22B in cruise, ASK~21 aerobatics, ASK~21 and P2006T landings (Section~\ref{sec:ref}) \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -112,7 +113,7 @@ Table~\ref{tab:sources} lists the sources against which the model is compared; t
 \emph{(iv)} CR-177436's near-field microphone stands for a point on a tiltrotor's fuselage in airplane mode: 2\,ft outboard of the tip path and 8\,ft under the disc. Its far-field microphone is 250\,ft out, 15$^\circ$ below the disc plane, and the report does not say what the ground did to it; the model is run in free air. The figures are ``typical'' faired curves, traced from the scan.
 \emph{(v)} The published MV-22 table~\cite{mod} gives maximum levels without saying the hover's height, the listener's direction or the meter's response, nor the ground. The airplane-mode levels are directly below at 220\,kt.
 \emph{(vi)} USAAEFA's power is both engines' output on the main rotor's disc; the model's is both rotors', without the transmission and accessories, which take a few per cent.
-\emph{(vii)} All the recordings come from public videos: camera microphones with automatic gain and an unknown response, some with music. Absolute levels cannot be read from them. Only ratios within a moment are used: tones over the broadband beside them, the sound's pulsing, spectral shapes at equal loudness (ITU-R BS.1770~\cite{bs1770}, never A-weighting, which is blind to the lows a listener hears), and how these change. Airspeed, load factor and sideslip in the gliders' videos were read off the instruments in the picture.
+\emph{(vii)} All the recordings come from public videos: camera microphones with automatic gain and an unknown response, some with music. Absolute levels cannot be read from them. Only ratios within a moment are used: tones over the broadband beside them, the sound's pulsing, spectral shapes at equal loudness (ITU-R BS.1770~\cite{bs1770}, never A-weighting, which is blind to the lows a listener hears), and how these change. Airspeed, load factor and sideslip in the gliders' videos were read off the instruments in the picture. A tyre's transfer into a cockpit is such a ratio too, the roll against the airflow at the moment of touchdown, and as absolute as the model's airflow it is set by.
 \emph{(viii)} The calibrated measurements disagree among themselves. At 120\,kt the UH-60A's cockpit is 101\,dBA at the pilot's seat and 97 at the copilot's in Mace's survey~\cite{usaarl}, and 93 in NASA's, its two microphones by the pilots' heads~\cite{tm84664}; the Army quotes 106 in flight, the condition not stated~\cite{nas}. The FAA's report~\cite{faa} is a scan, read by optical character recognition; its levels are averages of several runs and it prints no spectra. Speeds, torques and rates of descent come from photographs of the cockpit during each run: a snapshot, so three of the June 22 approaches read $-1900$\,ft/min with the others' levels, and those are taken at the others' rate. The Prue-2 glider~\cite{healy}, of the 6670\,N class, is not an ASK~21, which flies here at about 5300\,N; its bands are the maxima held during each pass, read from a figure, normalised to 152\,m, and close to the ambient's at the lower speeds, from which they had to be subtracted.
 
 % =====================================================================================================================
@@ -166,6 +167,9 @@ The cockpit's wind is the turbulent boundary layer's wall pressure on the skin, 
 \subsection{Gliders}
 A glider has no engine; what is heard is the air. Its wing and tail make BPM's noise on the real sections' boundary layers, which NeuralFoil~\cite{neuralfoil} gives at each strip's Reynolds number and angle of attack, the separated share of the chord replacing BPM's angle stages. In the cockpit the fuselage's potential flow (a panel method with the wing's lifting line) gives each panel of the glass, and of the shell below the sills, the boundary layer of the streamline that reaches it, and Goody's wall pressure passes each wall by the mass law, the left and right halves heard apart. Airbrakes are Curle dipoles with assumed force coefficients. Wheels that don't retract follow Fink's method for landing gear~\cite{anopp}. Steady manoeuvres deflect the sections and balance the moments; a sideslip is set by its angle, with the wing and tail at the speed across their span, and the fuselage flying sideways is Fink's strut.
 
+\subsection{Tyres}
+A tyre rolling on a paved runway sounds by two kinds of mechanism~\cite{hoever,winroth}. The road's texture shakes the tread and belt, mostly below 1\,kHz, with a sound power growing as the speed squared and with the texture's amplitude at the wavelength $\lambda=V/f$ each frequency maps to. Air squeezed out of the contact and sucked back in radiates above that, its power growing as the speed to the fourth. A model of the belt itself needs layered stiffnesses that no maker publishes for a bias-ply aircraft tyre, so a measured spectrum is scaled instead: Hoever's 315/80\,R22.5 truck tyre at 60\,km/h on a stone mastic asphalt~\cite{hoever}. Its two parts are split at 1\,kHz and scaled by their own speed laws, the vibration's part moved by the runway's texture against the reference road's. The power scales with the tread's width and the frequencies as one over the square root of the diameter, and the tyre radiates over a hard ground. In a cockpit a tyre is heard mostly through the structure, which no model here computes: a transfer per third octave from the tyre's sound power to the cockpit's pressure is taken from a recorded landing in the same airframe (Section~\ref{sec:tyres}). The loops are stationary Gaussian noise, cross-faded over each wheel's rolling speed and faded as its load comes off.
+
 \subsection{Synthesis and propagation}
 Tones are synthesised additively from the exact harmonics, as a wavetable synthesiser does: band limited by construction, below the Nyquist frequency over the largest pitch factor the simulator applies, so that pitching a loop with the rotor's speed cannot alias. A loop holds an integer number of revolutions in an integer number of samples, the rotor's speed nudged by under a cent: it is a true period, not a cross-fade. Broadband is band noise shaped by the spectral history's blade-passage envelope. ISO~9613 absorption~\cite{iso}, turbulent-air scintillation, the ground's reflection (Delany and Bazley~\cite{delany}) and a light diffuse field complete the outside. A bank renders every flight condition at four positions and the cockpit in layers that add up to the mix, with a FlightGear section whose volumes, evaluated as SimGear evaluates them, sum to one everywhere.
 
@@ -182,11 +186,11 @@ What is compared with what deserves stating, because it decides what a result me
 \toprule
 Calibrated & vortex core 0.8 chord (HART~II's noise); roll-up 0.7; the MV-22B's section constants (XV-15 hover test); UH-60A drive tones and bands (Mace's spectrum) \\
 \addlinespace
-Measured from recordings & T700 blade counts 20 and 22; AE~1107C blade count 32; APU signature; relative gearbox tones; the ASK~21 cockpit's low roar; MV-22B: drive's roar and meshes, wall masses, structure's mobility, rotor index 26.4$^\circ$, modal draw, load ripple, 18\,dB forward path loss \\
+Measured from recordings & T700 blade counts 20 and 22; AE~1107C blade count 32; APU signature; relative gearbox tones; the ASK~21 cockpit's low roar; the cockpit's transfer from a rolling tyre (ASK~21, P2006T); MV-22B: drive's roar and meshes, wall masses, structure's mobility, rotor index 26.4$^\circ$, modal draw, load ripple, 18\,dB forward path loss \\
 \addlinespace
 Assumed & blade-wake turbulence 0.2; gusts 1\,m/s; wander 0.25 chord; airbrake force coefficients; recirculation 20\,\% of $v_h$ \\
 \addlinespace
-Estimated & vane counts, stage geometry, starter; cabin skins and absorption; a glider's wheels: their image in the belly, the smaller tyres \\
+Estimated & vane counts, stage geometry, starter; cabin skins and absorption; a glider's wheels: their image in the belly, the smaller tyres; a tyre's level against speed in a cockpit; the P2006T's touchdown speed \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -383,6 +387,27 @@ The tunnel test is the only acoustic data found, one isolated high-lift propelle
 
 For flight the wing's upwash tilts the flow into each high-lift disc, \NXpUpLo{} to \NXpUpHi$^\circ$ at a lift coefficient of 1.5, and neighbouring discs drift a revolution per loop apart, so their tones beat. The tones NASA placed on the spinner, at 3.65 and 4.375\,kHz, go in as measured, as orders of the rotation. The motors have no measurement behind them. Their inverters switch near 40\,kHz, out of hearing, so what is left is the electrical frequency's harmonics and the slots' passing, with poles and slots from the 2016 design study~\cite{sceptor} for the cruise motor and assumed for the high-lift motor, at an assumed level, in a layer of its own. At that level they stand about \NXpMotorHi\,dB(A) under their propellers in the cockpit: heard only if the assumption is far too low, or with the propellers quiet. The bank has \NXpLoops{} loops, at most \NXpSources{} running at once. The cruise propeller's noise and the cabin's walls have nothing to check against. Neighbouring discs' slipstreams and the wing's unsteady response are unmodelled or untested here.
 
+\subsection{Tyres}\label{sec:tyres}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig/tyres.pdf}
+\caption{Tyres rolling: (a) the cockpit's structure-borne transfer, its level less the tyre's sound power level, from an ASK~21's landing (its two calibrations as circles) and a P2006T's (the roll taken as half of the cabin's band; shaded, a quarter to all of it); (b) in the P2006T, the 150--1700\,Hz band against the cabin's lowest and highest bands, by half second, relative to the 3.8\,s before touchdown; (c) the X-57's three tyres by ground speed: in the cockpit with each transfer, against the cockpit's wind at that airspeed, and 30\,m to the side.}\label{fig:tyres}
+\end{figure*}
+\begin{table}[t]
+\centering\small
+\caption{A rolling tyre's transfer into a cockpit, dB: the cockpit's third-octave level (re 20\,$\mu$Pa) less the tyre's sound power level (re 1\,pW).}\label{tab:tyres}
+\Tab{tyres}
+\end{table}
+Outside, the scaling holds where it can be tested. The reference tyre comes back at \NTyRef\,dB(A) 1\,m from its contact, against the measured \NTyRefMeas. A car's four tyres at 80\,km/h on an ISO~10844 surface give \NTyCar\,dB(A) at 7.5\,m, about 4\,dB over the 70 of a typical EU tyre label. The only aircraft measurement found is quoted without a source in a patent~\cite{seeley}: a towed 658\,kg tricycle on 5.00-5 ribbed tyres at 55\,mph on smooth asphalt, about 60\,dB(A) 30\,m to the side. The model gives \NTyTow{} (\NTyTowAsph{} on a rougher asphalt). No spectrum was published, so this checks a level only.
+
+In a cockpit the tyre's sound through the air stays 20 to 30\,dB under what the structure brings, so the cockpit is what the structure makes it. Two public videos of landings give that, with a limit: both cameras' gain controls hold the level, so neither can be read along a roll. In the ASK~21's the roll's band stays within \NTyRatioSpread\,dB of the same height over the 2--5\,kHz band at 44, 37, 28 and 18\,kt; during the roll that band is the roll's own, and no airflow model can set the gain from it. What can be read is the moment of touchdown. In the ASK~21 the 2--5\,kHz airflow moves \NTyHiStep\,dB as the wheel touches while the roll's bands jump 15\,dB, so the camera's gain, set from the model's airflow just before, holds for the roll's first 0.3\,s. Set again from the airflow over the next 4\,s, it agrees to \NTyAskAgree\,dB a band on average, \NTyAskAgreeMax{} at most.
+
+The P2006T is a light twin with sprung gear, and the X-57's airframe. Its camera's gain is set by the X-57's own windscreen noise (Section~\ref{sec:cabin}) at 65\,kt just before touchdown; an idling engine's line at 557\,Hz moves \NTyLine\,dB through it. Here the roll is no louder than the idling engines and the wind. At touchdown the 150--1700\,Hz band rises \NTyRiseLow\,dB against the cabin's low bands and \NTyRiseHigh{} against its high ones (Fig.~\ref{fig:tyres}b), where closing the throttles five seconds before had moved it \NTyThrottles\,dB. Both references fall as the engines and the wind slow, so the roll is at most a quarter to a half of that band. It is taken as half, the upper end; the touchdown speed, not in the picture and taken as 58\,kt, moves the transfer by \NTySpeed\,dB at most from 55 to 62\,kt, and a window 3\,s later with all three wheels down gives \NTyLater\,dB. Above 250\,Hz the glider's wheel, unsprung under the seat in a thin shell, puts \NTyLessLo{} to \NTyLessHi\,dB more into its cockpit than the P2006T's gear (Table~\ref{tab:tyres}, Fig.~\ref{fig:tyres}a).
+
+The P2006T's transfer is set against the very wind the X-57's bank uses, so the tyres stand to that wind as they did in the P2006T's cabin. The X-57's three tyres come to \NTyCockThirty\,dB(A) in the cockpit at 30\,kt and \NTyCockSixty{} at 60, the wind to \NTyWindThirty{} and \NTyWindSixty{} (Fig.~\ref{fig:tyres}c); with the glider's transfer the tyres would be \NTyCockAskThirty{} and \NTyCockAskSixty. Under the same calibration the P2006T's cabin on the approach at idle comes to \NTyApproach\,dB(A), which no published level could check. Outside, the X-57's tyres come to \NTySideThirty{} and \NTySideSixty\,dB(A) 30\,m to the side.
+
+A rolling tyre's sound is noise, with no tone and nothing once a wheel's turn. Once the wheels are down, the roll's band has a kurtosis of \NTyKurtLo{} to \NTyKurtHi{} in both cabins, as Gaussian noise's 3, and the loops' is \NTyKurtLoop. The exception is a thump 2\,s after the P2006T's touchdown (\NTyThump), likely its nose wheel coming down. No recording could show how the cockpit's level grows with speed, so that is the model's alone; below the lowest loop it falls as $V^{\NTyPow}$. Grass, concrete, wet runways, the touchdown's chirp, the brakes and the nose wheel's thump are not modelled.
+
 \subsection{Cost}\label{sec:cost}
 On an Apple M1 (8 cores), busy with other work during this run (a load average of \NBeLoad), the source-time, closed-form kernel takes \NBeSrc\,ms where the classic retarded-time iteration, as the original WOPWOP does it, with the same compiler, takes \NBeRet\,ms, \NBeRatio{} times as long for the same answer. Part of that is the method's own: emission times on a grid read their sines and cosines from a table, which an iteration's trial times can't. A UH-60A descent's trim, elastic response and wake take \NBeTrim\,s, Formulation 1A at one listener \NBeFa\,s (\NBeRate{} million source evaluations a second), and a whole 15\,s loop from nothing \NBeLoop\,s. PSU-WOPWOP itself was not timed: its binary is distributed on request, so no ratio is claimed.
 
@@ -467,6 +492,10 @@ ASK~21 cockpit shape, 315\,Hz--6.3\,kHz (P) & \ok \\
 ASK~21 above 5\,kHz (P) & \nok \\
 ASK~21 from 126 to 316\,Hz, on another glider (M) & \pok \\
 ASK~21 hiss against load factor (P) & \nok \\
+A tyre's rolling noise outside, a towed aircraft (P) & \ok \\
+Tyres in a cockpit, two airframes (M) & \pok \\
+A rolling tyre's texture (P) & \ok \\
+Tyres in a cockpit against speed & not tested \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -555,6 +584,9 @@ What would change this most is cheap to state: a calibrated cockpit recording of
 \bibitem{lee} S.-K.\ Lee, \emph{Longitudinal Development of Flow-Separation Lines on Slender Bodies in Translation}, J.\ Fluid Mech.\ 837, 2018.
 \bibitem{allen} H.\,J.\ Allen and E.\,W.\ Perkins, \emph{A Study of Effects of Viscosity on Flow Over Slender Inclined Bodies of Revolution}, NACA Report 1048, 1951.
 \bibitem{wygnanski} I.\ Wygnanski, F.\ Champagne and B.\ Marasli, \emph{On the Large-Scale Structures in Two-Dimensional, Small-Deficit, Turbulent Wakes}, J.\ Fluid Mech.\ 168, 1986.
+\bibitem{hoever} C.\ Hoever, \emph{The Simulation of Car and Truck Tyre Vibrations, Rolling Resistance and Rolling Noise}, PhD thesis, Chalmers University of Technology, Gothenburg, 2014.
+\bibitem{winroth} J.\ Winroth, C.\ Hoever, W.\ Kropp and T.\ Beckenbauer, \emph{The Contribution of Air-Pumping to Tyre/Road Noise}, AIA-DAGA 2013, Merano, 2013.
+\bibitem{seeley} B.\,A.\ Seeley, \emph{Quiet Urban Air Delivery System}, US Patent 11\,198\,519, 2021.
 \bibitem{jones} Jones et al., \emph{The Danger Zone for Noise Hazards Around the Black Hawk Helicopter}, Aerospace Medicine and Human Performance 89(6), 2018.
 \end{thebibliography}
 \end{document}

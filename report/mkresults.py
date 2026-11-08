@@ -9,9 +9,10 @@ rotor's noise on NASA's test stand), hart2 (the
 HART II rotor's loads and noise), bvi (slap's level against the descent, on HART II and the UH-60A), texture (loops against recordings),
 fountain (the XV-15 over ground boards), outside (the MV-22 against the published table), engines (cycles, levels), tones (the
 engines' and gearbox's tones in UH-60 recordings), cabin (the walls), wind, mv22 (the cockpit against its recording), mv22_terms (the
-same, each physical term taken out), ask21 (the gliders' recordings), slip (the glider slipping), props (the X-57's propellers), bench (timings: run on a quiet machine).
+same, each physical term taken out), ask21 (the gliders' recordings), slip (the glider slipping), props (the X-57's propellers), tyres
+(tyres rolling, against two landings' recordings: tools/tyre_recordings.py), bench (timings: run on a quiet machine).
 
-texture, tones, mv22 and ask21 read recordings (refs/recordings, kept out of the repository) and the FlightGear aircrafts' sounds; the
+texture, tones, mv22, ask21 and tyres read recordings (refs/recordings, kept out of the repository) and the FlightGear aircrafts' sounds; the
 results they leave are what the report needs, so it can be rebuilt without them."""
 import json
 import os
@@ -1398,8 +1399,15 @@ def bench():
                        cores=os.cpu_count()))
 
 
+def tyres():
+    """tyres rolling: the checks outside, the cockpit's transfers from an ASK 21's and a P2006T's landing, the X-57's tyres"""
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import tyre_recordings
+    dump("tyres", tyre_recordings.results())
+
+
 STAGES = dict(verify=verify, rotors=rotors, stand=stand, hart2=hart2, bvi=bvi, texture=texture, fountain=fountain, outside=outside, engines=engines, tones=tones, cabin=cabin,
-              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, slip=slip, props=props, bench=bench)
+              wind=wind, cockpit=cockpit, prue=prue, flight=flight, sites=sites, core=core, mv22=mv22, chop=chop, mv22_terms=mv22_terms, roar=roar, ask21=ask21, slip=slip, props=props, tyres=tyres, bench=bench)
 
 if __name__ == "__main__":
     import pywopwop
