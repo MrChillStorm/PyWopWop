@@ -121,15 +121,16 @@ def test_strut_mass():
 
 
 def test_strut_slows_the_sink_as_jsbsim():
-    """the X-57's mains in JSBSim 1.3.3 (its flight model trimmed at 75 kt, the controls held, the X-57's own rim model):
-    slides of 65 and 39 ms at 2.58 and 3.99 fps, where the strut's damping does the work; and a landing flown in
-    FlightGear at about 85 kt, 175 and 75 ms at 1 and 2.6 fps, where the wing's shedding of the weight matters"""
+    """the X-57's mains in JSBSim 1.3.3 with its own rim model (tools/jsbsim_touchdown.py): trimmed at 75 kt with the
+    controls held, slides of 65 and 39 ms at 2.58 and 3.99 fps, where the strut's damping does the work; and dropped
+    untrimmed at 85 kt, the wing carrying three quarters of the weight, 156, 134, 69 and 43 ms at 1.13, 1.39, 2.64 and
+    4.20 fps, where how fast the weight comes on matters too"""
     slide = lambda kt, fps: T.spin_up(kt * 0.514444, "6.00-6", MAIN["damping"], MAIN["spring"], fps * 0.3048,
                                       MAIN["static_load_n"], mass_kg=X57_MAIN_KG)[0][-1]
     assert slide(74.9, 2.58) == pytest.approx(0.065, rel=0.1)
     assert slide(75.0, 3.99) == pytest.approx(0.039, rel=0.15)
-    assert slide(85.0, 1.0) == pytest.approx(0.175, rel=0.05)
-    assert slide(85.0, 2.6) == pytest.approx(0.075, rel=0.05)
+    for fps, ms in ((1.13, 156), (1.39, 134), (2.64, 69), (4.20, 43)):
+        assert slide(85.0, fps) == pytest.approx(ms * 1e-3, rel=0.1)
 
 
 def test_squeal_holds_to_the_end():

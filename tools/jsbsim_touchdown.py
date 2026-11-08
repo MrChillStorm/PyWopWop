@@ -1,11 +1,13 @@
 """The X-57's main wheels touching down in JSBSim, against tyre.spin_up.
 
-    python tools/jsbsim_touchdown.py PATH/TO/X-57/X-57 [KT SINK_FPS ...]
+    python tools/jsbsim_touchdown.py PATH/TO/X-57/X-57 [--drop] [KT SINK_FPS ...]
 
 Needs the jsbsim Python module and the X-57's flight model (github.com/MrChillStorm/X-57; its aircraft folder, holding
 x57-mod3.xml and Systems/). Trims the aircraft at the airspeed for a steady descent at the sink rate, flaps down, then
-holds the controls and lets its mains meet the runway: the slide lasts until the X-57's own rim model (gear/unit[1]/
-spin-kt, spun up by 0.5 times the strut's force) reaches the ground speed. Prints each slide and spin_up's at the sink
+holds the controls and lets its mains meet the runway; or, with --drop, drops it untrimmed, level with the elevator
+neutral and the levers at 0.3, the wing carrying what it does at about 0 deg (at 85 kt, three quarters of the weight).
+The slide lasts until the X-57's own rim model (gear/unit[1]/spin-kt, spun up by 0.5 times the strut's force) reaches
+the ground speed. Prints each slide and spin_up's at the sink
 rate and slip the flight model latched, with the X-57's mass at the wheel (tools/tyre_recordings.py's X57_MASS).
 Defaults: 75 kt at 0.5, 1, 2.6 and 4 fps."""
 import os
@@ -56,14 +58,17 @@ def balance(fdm, kt, sink_fps, alpha, elev, h=40.0):
 
 
 def trim(fdm, kt, sink_fps):
-    x = np.array([8.0, 0.2])
-    for _ in range(12):
+    """alpha and elevator for a steady descent; Newton's steps held to 2 deg and 0.1, from a guess scaled from 75 kt's
+    (7.8 deg, flaps down: no lift at about -6 deg) by the dynamic pressure"""
+    x = np.array([-6.0 + 13.8 * (75.0 / kt) ** 2, 0.25])
+    for _ in range(30):
         f = balance(fdm, kt, sink_fps, *x)
         if np.abs(f).max() < 1e-3:
-            break
+            return x
         J = np.column_stack([(balance(fdm, kt, sink_fps, *(x + d)) - f) / 1e-3 for d in np.eye(2) * 1e-3])
-        x = x - np.linalg.solve(J, f)
-    return x
+        x = x - np.clip(np.linalg.solve(J, f), [-2.0, -0.1], [2.0, 0.1])
+        x[1] = np.clip(x[1], -0.99, 0.99)        # the stabilator's command stops at 1
+    raise RuntimeError(f"no trim at {kt:g} kt and {sink_fps:g} fps: residual {f}")
 
 
 def touchdown(fdm, kt, sink_fps, gap_ft=0.02):
@@ -71,6 +76,21 @@ def touchdown(fdm, kt, sink_fps, gap_ft=0.02):
     kt, slide s)"""
     alpha, elev = trim(fdm, kt, sink_fps)
     fdm["ic/alpha-deg"], fdm["fcs/elevator-cmd-norm"] = alpha, elev
+    return _run(fdm, gap_ft)
+
+
+def drop(fdm, kt, sink_fps, gap_ft=0.02):
+    """untrimmed: level (pitch 0), the levers at 0.3, the elevator neutral, its mains gap_ft over the runway coming
+    down at sink_fps, the wing lifting as it does at about 0 deg at kt; run with nothing moved: (latched sink fps, slip
+    kt, slide s)"""
+    for n in (0, 1):
+        fdm[f"/controls/engines/engine[{n}]/throttle"] = 0.3
+    fdm["fcs/elevator-cmd-norm"] = 0.0
+    fdm["ic/theta-deg"], fdm["ic/u-fps"], fdm["ic/v-fps"], fdm["ic/w-fps"] = 0.0, kt * FPS_PER_KT, 0.0, sink_fps
+    return _run(fdm, gap_ft)
+
+
+def _run(fdm, gap_ft):
     lo, hi = 0.0, 10.0
     for _ in range(30):                  # the height at which the mains just touch
         fdm["ic/h-agl-ft"] = 0.5 * (lo + hi)
@@ -93,12 +113,16 @@ def touchdown(fdm, kt, sink_fps, gap_ft=0.02):
 
 
 def main(argv):
+    mode = touchdown
+    if "--drop" in argv:
+        argv = [a for a in argv if a != "--drop"]
+        mode = drop
     aircraft_dir = os.path.abspath(argv[0])
     pairs = [float(a) for a in argv[1:]] or [75, 0.5, 75, 1.0, 75, 2.6, 75, 4.0]
     with tempfile.TemporaryDirectory() as tree:
         for kt, fps in zip(pairs[::2], pairs[1::2]):
             fdm = load(aircraft_dir, tree)
-            sink, slip, slide = touchdown(fdm, kt, fps)
+            sink, slip, slide = mode(fdm, kt, fps)
             model = T.spin_up(slip * 0.514444, "6.00-6", 553 * 14.5939, 5228 * 14.5939, sink * 0.3048,
                               3000 * 0.85 / 2 * 4.44822, mass_kg=X57_MASS["main"])[0][-1]
             print(f"{kt:g} kt, {fps:g} fps: latched {sink:.2f} fps and {slip:.1f} kt; slide {slide * 1e3:.0f} ms in "

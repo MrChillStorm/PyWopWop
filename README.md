@@ -286,8 +286,9 @@ Both mains touching together add 3 dB, as two tyres do. Past 105 kt of slip and 
 P2006T's in level (0.2 dB(A) over), in how its energy falls through the slide (by 10 ms within 1.6 dB rms, 54 % in the
 first half against 53 %), in how much of it is one line (44 % against 47 %, seed to seed ±6) and in its bands (within
 2.5 dB from 630 Hz to 6.3 kHz). The slides are checked against the X-57's flight model in JSBSim, which slows the sink
-as the strut does: 66 and 43 ms against its 65 and 39 at 2.6 and 4 fps, and 172 and 75 ms against a landing flown in
-FlightGear's 175 and 75 at 1 and 2.6 fps. How fast the wing sheds the weight is the pilot's: with the controls held
+as the strut does: trimmed at 75 kt with the controls held, 66 and 43 ms against its 65 and 39 at 2.6 and 4 fps; dropped
+untrimmed at 85 kt, the wing carrying three quarters of the weight, within 7 % from 1.1 to 4.2 fps (161 against 156 ms
+at 1.1). How fast the wing sheds the weight is the pilot's, and no flown landing has been timed: with the controls held
 JSBSim's mains slide 357 ms at 0.95 fps, against 159 here. The thumps play at their estimate. Where one would pass full scale at a gain the propellers set, it goes
 through a soft knee 6 dB under full scale, as a limiter would, and past 6 dB over full scale it is driven in at half its
 growth: an X-57 main thump plays 0.5 dB under its estimate at 1 fps, 3.0 at 2 and 6.9 at 4, still louder each time, with
@@ -417,7 +418,8 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   within 3 dB of the 60 dB(A) measured (the model 60.5). A wheel's spin-up loses I (V/r)²/2 to 1 %, its squeal carries
   its share of that, and the P2006T's recorded touchdown, 0.101 s at 58 kt, comes back from 1.28 fps on the X-57's struts.
   The X-57's slides within 10 % of JSBSim's at 2.6 and 4 fps (`tools/jsbsim_touchdown.py`, on the X-57's flight
-  model), and within 5 % of a landing flown in FlightGear.
+  model, trimmed with the controls held, or dropped untrimmed at 85 kt with `--drop`), and within 7 % in the drop from
+  1.1 to 4.2 fps.
 - Wind: the wall pressure within Bies's range of the dynamic pressure; the FlightGear section's loops add up to the
   altitude's amplitude around the equivalent airspeed.
 - Airplane mode: the trim follows the preset's trims; the MV-22B's rotor power within 1.2 % of its flight model's

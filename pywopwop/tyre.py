@@ -331,8 +331,9 @@ def flightgear_tyre_xml(manifest, sound_dir="Sounds/pywopwop", exterior="side"):
 # the job. On the X-57's flight model in JSBSim (1.3.3, trimmed at 75 kt, the controls held) the mains slide 65 and
 # 39 ms at 2.6 and 4.0 fps, against this model's 66 and 43; the first 80 ms of the load at 0.95 fps agree within 1 %
 # given the wing's lift. How fast the wing then sheds the weight is the pilot's. Held controls shed it slowly: 357 ms
-# at 0.95 fps, against this model's 159. A landing flown in FlightGear slid 175 and 75 ms at 1 and 2.6 fps and about
-# 85 kt, which SETTLE_S gives (172 and 75).
+# at 0.95 fps, against this model's 159. Dropped untrimmed at 85 kt (level, the elevator neutral, the wing carrying
+# three quarters of the weight: tools/jsbsim_touchdown.py --drop) the mains slide 156, 134, 69 and 43 ms at 1.13, 1.39,
+# 2.64 and 4.20 fps, which SETTLE_S gives within 7 % (161, 140, 74 and 46). No flown landing has been timed.
 SETTLE_S = 0.3
 
 # Tyres and wheels (Goodyear's databook 2022 for the sizes and loaded radii; distributor catalogues for the tyres'
