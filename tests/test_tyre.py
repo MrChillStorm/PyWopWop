@@ -127,9 +127,15 @@ def test_touchdown_bank(tmp_path):
     groups = [dict(name="main", tyre_type="6.00-6", wheels=[dict(gear=1, position=(-0.44, 1.0, -1.17)),
                                                             dict(gear=2, position=(-0.44, -1.0, -1.17))], **MAIN)]
     m = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path, groups, dict(cockpit=-30.0, exterior=-20.0), "p2006t",
-                              speeds=(45.0, 75.0), sinks=(0.5, 2.0), progress=lambda s: None)
+                              slips=(45.0, 75.0), sinks=(0.5, 2.0), progress=lambda s: None)
     assert len(m["files"]) == 2 * 2 * 2 + 2
-    assert all(f["boost"] >= 1.0 for f in m["files"])
+    assert all(f["boost"] > 0.5 for f in m["files"])
+    # every file's level at its window's centre is its law's: the energy as the slip (squeal) or sink rate (thump) squared
+    for kind, axis in (("squeal", "slip_kt"), ("thump", "sink_fps")):
+        same = [f for f in m["files"] if f["kind"] == kind and f["view"] == "cockpit"]
+        K = [f["law_dba"] - 20 * np.log10(f[axis]) for f in same]
+        assert max(K) - min(K) < 0.01           # law_dba is kept to two decimals
+        assert all(abs(f["exposure_dba"] + f["correction_db"] - f["law_dba"]) < 0.01 for f in same)
     assert m["thump_offset_db"] <= 0.0
     root = ET.fromstring((tmp_path / "pywopwop-touchdown.xml").read_text())
     entries = root.find("fx").findall("touchdown")

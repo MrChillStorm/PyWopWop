@@ -253,8 +253,8 @@ grows with speed is the model's alone. Not modelled: grass, concrete, wet runway
 
 At touchdown a wheel meets the runway not turning and slides until friction spins it up. The slide loses
 I (V/r)²/2 whatever the load does, so a firm touchdown gives a short loud squeal and a gentle one a long quiet squeal of the
-same energy. `make_touchdown_bank` writes one-shots of each wheel group's squeal by ground speed and sink rate, in the
-cockpit and outside, and its strut's thump by sink rate, in the cockpit:
+same energy. `make_touchdown_bank` writes one-shots of each wheel group's squeal by slip speed (the ground speed less the
+wheel's rim speed) and sink rate, in the cockpit and outside, and its strut's thump by sink rate, in the cockpit:
 
 ```python
 groups = [dict(name="main", tyre_type="6.00-6", damping=8071.0, spring=76296.0, static_load_n=5671.0,
@@ -270,10 +270,13 @@ tyre.make_touchdown_bank(load_prop_aircraft("x57"), "out/x57_touchdown", groups,
 | Squeal | a share of the spin-up's loss, -48 dB, from a P2006T's landing; an ASK 21's comes within 3 dB. Its spectrum and its line (wandering or gliding, a half to a tenth of the energy) from the same two recordings, per tyre size |
 | Thump | the strut's damping force on the airframe, its level from the P2006T's touchdown, at the edge of what the recording shows |
 
-`pywopwop-touchdown.xml` plays them once per wheel and touchdown, chosen by the sink rate and ground speed the flight
-model holds for that wheel from the moment its weight comes on until it lifts off: `/fdm/jsbsim/gear/unit[n]/touchdown-sink-fps`
-and `touchdown-speed-kt`, proposals the flight model has to provide. Each file is written at the top of its window, so the
-volume never needs more than 1; past 4 fps the 4 fps sounds play at full volume. The squeal is checked against the
+`pywopwop-touchdown.xml` plays them once per wheel and touchdown, chosen by the sink rate and slip the flight model holds
+for that wheel from the moment its weight comes on until it lifts off: `/fdm/jsbsim/gear/unit[n]/touchdown-sink-fps` and
+`touchdown-slip-kt`, which the flight model has to provide. The windows pick the file, its timbre and slide's length; the
+volume follows the event's energy, as the slip squared for a squeal (the sink rate only sets how long it lasts) and as the
+sink rate squared for a thump, each file's own difference from that law taken out, so a touchdown on a window's edge sounds
+as loud from either side. Each file is written at the top of its window, so the volume never needs more than 1; past 4 fps
+the 4 fps sounds play at full volume. The squeal is checked against the
 P2006T's in length (87 against 83 ms), in how much of it is one line (47 %) and in its bands (within 3 dB from 630 Hz
 to 5 kHz). The thumps are written `thump_offset_db` under their estimate (20 dB for the X-57) so that the firmest fits a
 bank whose gain the propellers set.
