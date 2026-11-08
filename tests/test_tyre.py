@@ -78,6 +78,7 @@ def test_bank_and_xml(tmp_path):
     assert all(f["structure_dba"] > f["airborne_dba"] for f in cockpit)
     assert 2.0 < m["low_speed_power"]["nose"] < 4.0
     root = ET.fromstring((tmp_path / "pywopwop-tyres.xml").read_text())
+    _comparisons_simgear_takes(root)
     entries = root.find("fx").findall("tyre")
     assert len(entries) == len(m["files"])
     for e in entries:
@@ -122,22 +123,87 @@ def test_thump_scales_with_force():
     assert 10 * np.log10(np.sum(b ** 2) / np.sum(a ** 2)) == pytest.approx(6.0, abs=1.5)
 
 
+def _eval(e, P):
+    """a SimGear expression or condition, as the sound system evaluates it"""
+    t, k = e.tag, list(e)
+    if t == "value":
+        return float(e.text)
+    if t == "property":
+        return P[e.text]
+    if t in ("expression", "condition"):
+        return _eval(k[0], P)
+    if t == "product":
+        return float(np.prod([_eval(c, P) for c in k]))
+    if t == "sum":
+        return sum(_eval(c, P) for c in k)
+    if t == "clip":
+        x = _eval([c for c in k if c.tag not in ("clipMin", "clipMax")][0], P)
+        return min(max(x, float(e.find("clipMin").text)), float(e.find("clipMax").text))
+    if t == "and":
+        return all(_eval(c, P) for c in k)
+    if t == "not":
+        return not _eval(k[0], P)
+    if t in ("greater-than", "less-than"):
+        # SimGear's conditions compare a property with a property or a value, nothing computed (condition.cxx)
+        assert [c.tag for c in k][0] == "property" and k[1].tag in ("property", "value"), [c.tag for c in k]
+        a, b = _eval(k[0], P), _eval(k[1], P)
+        return a > b if t == "greater-than" else a < b
+    raise KeyError(t)
+
+
+def _comparisons_simgear_takes(root):
+    """every comparison in every condition: a property on the left, a property or a value on the right"""
+    for cond in root.iter("condition"):
+        for c in cond.iter():
+            if c.tag in ("greater-than", "less-than", "equals", "greater-than-equals", "less-than-equals"):
+                kids = [k.tag for k in c]
+                assert kids[0] == "property" and kids[1] in ("property", "value") and len(kids) == 2, kids
+
+
 def test_touchdown_bank(tmp_path):
+    """each wheel's files are one waveform under different envelopes; cross-faded by amplitude they keep the law's level
+    anywhere on the grid; two wheels touching together are two tyres"""
+    import scipy.io.wavfile as wavfile
     from pywopwop.propeller import load_prop_aircraft
+    from pywopwop.synth import a_weighted_ms
     groups = [dict(name="main", tyre_type="6.00-6", wheels=[dict(gear=1, position=(-0.44, 1.0, -1.17)),
                                                             dict(gear=2, position=(-0.44, -1.0, -1.17))], **MAIN)]
-    m = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path, groups, dict(cockpit=-30.0, exterior=-20.0), "p2006t",
+    gain = dict(cockpit=-30.0, exterior=-20.0)
+    m = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path, groups, gain, "p2006t",
                               slips=(45.0, 75.0), sinks=(0.5, 2.0), progress=lambda s: None)
-    assert len(m["files"]) == 2 * 2 * 2 + 2
-    assert all(f["boost"] > 0.5 for f in m["files"])
-    # every file's level at its window's centre is its law's: the energy as the slip (squeal) or sink rate (thump) squared
+    assert len(m["files"]) == 2 * (2 * 2 * 2 + 2)
+    files = {f["file"]: f for f in m["files"]}
     for kind, axis in (("squeal", "slip_kt"), ("thump", "sink_fps")):
-        same = [f for f in m["files"] if f["kind"] == kind and f["view"] == "cockpit"]
+        same = [f for f in m["files"] if f["kind"] == kind and f["view"] == "cockpit" and f["gear"] == 1]
         K = [f["law_dba"] - 20 * np.log10(f[axis]) for f in same]
         assert max(K) - min(K) < 0.01           # law_dba is kept to two decimals
-        assert all(abs(f["exposure_dba"] + f["correction_db"] - f["law_dba"]) < 0.01 for f in same)
-    assert m["thump_offset_db"] <= 0.0
     root = ET.fromstring((tmp_path / "pywopwop-touchdown.xml").read_text())
+    _comparisons_simgear_takes(root)
     entries = root.find("fx").findall("touchdown")
-    assert len(entries) == 2 * (2 * 2 * 2 + 2)
     assert all(e.find("mode").text == "once" for e in entries)
+
+    def heard(slip, sink, gear):
+        P = {"sim/current-view/internal": True}
+        for n in (1, 2):
+            P.update({f"/fdm/jsbsim/gear/unit[{n}]/touchdown-sink-fps": sink, f"/gear/gear[{n}]/wow": True,
+                      f"/fdm/jsbsim/gear/unit[{n}]/touchdown-slip-kt": slip})
+        x = np.zeros(48000)
+        for e in entries:
+            name = e.find("name").text
+            if f"_g{gear}_squeal" in name and _eval(e.find("condition"), P):
+                fn = e.find("path").text.split("/")[-1]
+                y = wavfile.read(tmp_path / fn)[1].astype(float) / 32768 / 10 ** (gain["cockpit"] / 20)
+                x[:len(y)] += _eval(e.find("volume/expression"), P) * y
+        return x
+    K = np.mean([f["law_dba"] - 20 * np.log10(f["slip_kt"]) for f in files.values()
+                 if f["kind"] == "squeal" and f["view"] == "cockpit" and f["gear"] == 1])
+    for slip, sink in ((45.0, 0.5), (58.0, 1.0), (75.0, 2.0), (52.0, 1.6)):
+        x = heard(slip, sink, 1)
+        assert 10 * np.log10(a_weighted_ms(x, 48000.0) / 4e-10) == pytest.approx(K + 20 * np.log10(slip), abs=1.0)
+    l, r = heard(58.0, 1.0, 1), heard(58.0, 1.0, 2)
+    assert abs(np.corrcoef(l, r)[0, 1]) < 0.3
+    # thumps at their estimate where they fit, through the knee past full scale, a firmer one still louder
+    th = sorted((f for f in m["files"] if f["kind"] == "thump" and f["gear"] == 1), key=lambda f: f["sink_fps"])
+    for f in th:
+        assert f["limited_db"] < 0.05 if f["peak_over_db"] <= 0 else f["limited_db"] > 0
+    assert all(b["played_dba"] > a["played_dba"] + 1.0 for a, b in zip(th, th[1:]))

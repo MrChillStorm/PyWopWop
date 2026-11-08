@@ -272,14 +272,19 @@ tyre.make_touchdown_bank(load_prop_aircraft("x57"), "out/x57_touchdown", groups,
 
 `pywopwop-touchdown.xml` plays them once per wheel and touchdown, chosen by the sink rate and slip the flight model holds
 for that wheel from the moment its weight comes on until it lifts off: `/fdm/jsbsim/gear/unit[n]/touchdown-sink-fps` and
-`touchdown-slip-kt`, which the flight model has to provide. The windows pick the file, its timbre and slide's length; the
-volume follows the event's energy, as the slip squared for a squeal (the sink rate only sets how long it lasts) and as the
-sink rate squared for a thump, each file's own difference from that law taken out, so a touchdown on a window's edge sounds
-as loud from either side. Each file is written at the top of its window, so the volume never needs more than 1; past 4 fps
-the 4 fps sounds play at full volume. The squeal is checked against the
+`touchdown-slip-kt`, which the flight model has to provide. The sounds cross-fade: each wheel's files come from one seed
+of its own, so on its grid they are one waveform under different envelopes and levels, starting together, and the files at
+the grid's nodes around a touchdown blend by amplitude, with tent weights that sum to one, into one event (up to four
+squeals and two thumps a wheel, for a few tenths of a second). Uncorrelated files blended so would lose up to 3 dB between
+nodes, and blended by equal power they keep the level but sound like two tyres. Each node's amplitude follows the event's
+energy, as the slip squared for a squeal (the sink rate only sets how long it lasts) and as the sink rate squared for a
+thump, its file's own difference from that law taken out: the blends stay within 0.6 dB of the law anywhere on the grid.
+Both mains touching together add 3 dB, as two tyres do. Past 105 kt of slip and 4 fps the last files play at full volume. The squeal is checked against the
 P2006T's in length (87 against 83 ms), in how much of it is one line (47 %) and in its bands (within 3 dB from 630 Hz
-to 5 kHz). The thumps are written `thump_offset_db` under their estimate (20 dB for the X-57) so that the firmest fits a
-bank whose gain the propellers set.
+to 5 kHz). The thumps play at their estimate. Where one would pass full scale at a gain the propellers set, it goes
+through a soft knee 6 dB under full scale, as a limiter would, and past 6 dB over full scale it is driven in at half its
+growth: an X-57 main thump plays 1.9 dB under its estimate at 1 fps, 5.8 at 2 and 9.9 at 4, still louder each time, with
+the clipper's distortion at 5, 10 and 16 % of its energy.
 
 ## Turbine engines
 

@@ -294,8 +294,12 @@ def flightgear_tyre_xml(manifest, sound_dir="Sounds/pywopwop", exterior="side"):
                 fall = _ramp_e(kt, speeds[i + 1], v) if i < len(speeds) - 1 else None
                 w = _e("pow", rise, _v(0.5 * k)) if i == 0 else _e("sqrt", rise)
                 w = _e("product", w, _e("sqrt", fall)) if fall else w
-                lo = f"<greater-than>{kt}<value>{(speeds[i - 1] if i else 0.0):g}</value></greater-than>"
-                hi = f"<less-than>{kt}<value>{speeds[i + 1]:g}</value></less-than>" if fall else ""
+                # a condition compares a property with a value and nothing else (SimGear's condition.cxx): the
+                # window's edges in the property's own unit
+                raw = f"<property>{P['speed'].format(n=n)}</property>"
+                lo = f"<greater-than>{raw}<value>{(speeds[i - 1] if i else 0.0) / P['speed_scale']:.6g}</value></greater-than>"
+                hi = (f"<less-than>{raw}<value>{speeds[i + 1] / P['speed_scale']:.6g}</value></less-than>"
+                      if fall else "")
                 view_c = ("<property>sim/current-view/internal</property>" if view == "cockpit"
                           else "<not><property>sim/current-view/internal</property></not>")
                 cond = _e("and", view_c, f"<property>{P['wow'].format(n=n)}</property>", lo + hi)
@@ -342,10 +346,10 @@ TYRE_TYPES = {
 SQUEAL = {
     "6.00-6": dict(hz=[501.0, 630.0, 794.0, 1000.0, 1259.0, 1585.0, 1995.0, 2512.0, 3162.0, 3981.0, 5012.0, 6310.0, 7943.0],
                    db=[-44.1, -25.3, -14.4, -6.4, -3.3, -8.7, -12.6, -13.1, -17.9, -25.6, -30.8, -33.0, -40.1],
-                   tone_hz=1170.0, glide=-0.02, wander=0.06, tone_share=0.1, source="P2006T"),
+                   tone_hz=1170.0, glide_per_s=-0.2, wander=0.06, tone_share=0.1, source="P2006T"),
     "5.00-5": dict(hz=[501.0, 630.0, 794.0, 1000.0, 1259.0, 1585.0, 1995.0, 2512.0, 3162.0, 3981.0, 5012.0, 6310.0, 7943.0],
                    db=[-16.3, -21.2, -21.8, -28.7, -13.7, -3.1, -4.3, -15.8, -17.7, -33.1, -19.8, -23.9, -27.6],
-                   tone_hz=1730.0, glide=-0.05, wander=0.01, tone_share=0.6, source="ASK 21"),
+                   tone_hz=1730.0, glide_per_s=-0.29, wander=0.01, tone_share=0.6, source="ASK 21"),
 }
 # The squeal's sound energy against the energy the wheel loses spinning up (tools/tyre_recordings.py): the P2006T's
 # two mains at 58 kt, the sound power taken from the cockpit through its rolling transfer (STRUCTURES) in the bands it
@@ -398,29 +402,37 @@ def _shape(tab, f):
         - 12.0 * (np.maximum(np.log2(tab["hz"][0]) - o, 0.0) + np.maximum(o - np.log2(tab["hz"][-1]), 0.0))
 
 
-def _burst(band_energy, tone_energy, tone_hz, glide, envelope, fs, seed, pre=0.01, post=0.05, wander=0.0):
+def _burst(band_energy, tone_energy, tone_hz, glide_per_s, envelope, fs, seed, pre=0.01, post=0.05, wander=0.0, span_s=1.4):
     """a one-shot of noise with these band energies (Pa^2 s per band) and a tone of this energy at tone_hz (gliding by
-    the fraction glide, wandering by the fraction wander over some 20 ms), both following envelope (power, the slide's
-    samples at fs, mean 1)"""
+    glide_per_s of its frequency a second, wandering by the fraction wander over some 20 ms), both following envelope
+    (power, the slide's samples at fs, mean 1), after pre seconds of silence. The noise and the tone come from the seed
+    alone, drawn over a fixed span: bursts of one seed and one spectral shape are the same waveform under different
+    envelopes and levels, starting together, so neighbours on a grid blend by amplitude into one event."""
     rng = np.random.default_rng(seed)
     m = len(envelope)
-    n = int(round((pre + post) * fs)) + m
-    nf = 1 << int(np.ceil(np.log2(max(n, 2048))))
+    n0, n = int(round(pre * fs)), int(round(pre * fs)) + m + int(round(post * fs))
+    nf = 1 << int(np.ceil(np.log2(span_s * fs)))
+    if m > nf:
+        raise ValueError(f"a burst of {m / fs:.2f} s is longer than the span")
     f = np.maximum(np.fft.rfftfreq(nf, 1.0 / fs), 1e-6)
-    dur = m / fs
-    S = np.exp(np.interp(np.log(f), np.log(BANDS), np.log(np.maximum(band_energy / dur / (BAND_WIDTH * BANDS), 1e-30))))
+    shape = band_energy / max(np.sum(band_energy), 1e-30)
+    S = np.exp(np.interp(np.log(f), np.log(BANDS), np.log(np.maximum(shape / (BAND_WIDTH * BANDS), 1e-30))))
     S[0] = 0.0
-    X = nf * np.sqrt(S * fs / (2 * nf)) * np.exp(2j * np.pi * rng.random(len(f)))
-    noise = np.fft.irfft(X, nf)[:m]
-    noise = noise / np.sqrt(np.mean(noise ** 2) + 1e-30) * np.sqrt(np.sum(band_energy) / dur)
-    k = np.arange(m) / fs
-    drift = np.convolve(rng.normal(size=m + int(0.04 * fs)), np.hanning(int(0.04 * fs)), "same")[:m]
+    full = np.fft.irfft(np.sqrt(S) * np.exp(2j * np.pi * rng.random(len(f))), nf)
+    full = full / np.sqrt(np.mean(full ** 2))
+    drift = np.convolve(rng.normal(size=nf), np.hanning(int(0.04 * fs)), "same")
     drift = wander * drift / max(np.abs(drift).max(), 1e-12)
-    ph = 2 * np.pi * np.cumsum(tone_hz * (1.0 + glide * k / max(dur, 1e-9) + drift)) / fs
-    tone = np.sqrt(2 * tone_energy / dur) * np.sin(ph + 2 * np.pi * rng.random())
+    phase0 = 2 * np.pi * rng.random()
+    dur = m / fs
+    k = np.arange(m) / fs
+    noise = full[:m] * np.sqrt(np.sum(band_energy) / dur)
+    ph = phase0 + 2 * np.pi * np.cumsum(tone_hz * (1.0 + glide_per_s * k + drift[:m])) / fs
+    tone = np.sqrt(2 * tone_energy / dur) * np.sin(ph)
     edge = np.minimum(1.0, np.minimum(k / 0.002, (dur - k) / 0.004).clip(0, None))
     x = (noise + tone) * np.sqrt(envelope) * edge
-    return np.concatenate((np.zeros(int(round(pre * fs))), x, np.zeros(n - m - int(round(pre * fs)))))
+    out = np.zeros(n)
+    out[n0:n0 + m] = x
+    return out
 
 
 def squeal_shot(tyre_type, speed_ms, damping, spring, sink_ms, static_load_n, transfer_db=None, distance_m=None, mu=0.5,
@@ -443,7 +455,7 @@ def squeal_shot(tyre_type, speed_ms, damping, spring, sink_ms, static_load_n, tr
     tone = E * sq["tone_share"] * float(np.interp(np.log(sq["tone_hz"]), np.log(BANDS), to_p2))
     env = np.interp(np.arange(int(round(tt[-1] * fs)) + 1) / fs, tt, P) if len(tt) > 1 else np.ones(1)
     env = env / max(np.mean(env), 1e-30)
-    return _burst(band, tone, sq["tone_hz"], sq["glide"], env, fs, seed, wander=sq["wander"]), E, \
+    return _burst(band, tone, sq["tone_hz"], sq["glide_per_s"], env, fs, seed, wander=sq["wander"]), E, \
         float(tt[-1]) if len(tt) else 0.0
 
 
@@ -456,6 +468,12 @@ def thump_shot(damping, sink_ms, fs=48000.0, seed=1):
 
 
 TOUCHDOWN_SLIPS_KT = (30.0, 45.0, 60.0, 75.0, 90.0, 105.0)
+# a thump whose peak would pass full scale at the cockpit's gain goes through a soft knee starting this far under it
+# (a limiter: the peaks stay under full scale, the level grows on); past that much over full scale it is driven in at
+# THUMP_DRIVE of the rate its estimate grows at, so a firmer touchdown still thumps harder, by less than the sink rate
+# squared, and the clipper's share of it stays small
+THUMP_KNEE_DB = 6.0
+THUMP_DRIVE = 0.5
 SINKS_FPS = (0.25, 0.5, 1.0, 2.0, 4.0)      # harder plays the 4 fps squeal at full volume
 # the flight model's touchdown, latched per wheel from the moment its weight comes on until it lifts off again: its sink
 # rate, and its slip, the ground speed less the wheel's rim speed (a wheel still turning from the last touch slides less;
@@ -466,14 +484,16 @@ TOUCHDOWN_PROPERTIES = dict(sink="/fdm/jsbsim/gear/unit[{n}]/touchdown-sink-fps"
 
 def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUCHDOWN_SLIPS_KT, sinks=SINKS_FPS,
                         exterior_m=30.0, mu=0.5, fs=48000.0, seed=1, progress=print):
-    """One-shots of each wheel group's touchdown: squeals by slip speed and sink rate, in the cockpit (through the
+    """One-shots of each wheel's touchdown on a grid: squeals by slip speed and sink rate, in the cockpit (through the
     airframe's transfer, STRUCTURES) and exterior_m to the side; thumps by sink rate, in the cockpit only. groups: {name,
-    tyre_type, damping (N s/m), spring (N/m), static_load_n, wheels: [{gear, position}]}. A one-shot keeps its length, so
-    what its volume has to follow is the event's energy: a squeal's goes as the slip squared and doesn't depend on the
-    sink rate (which only sets how long it lasts), a thump's as the sink rate squared. Each group's files are fitted to
-    that law and each file carries its own difference from it (correction_db), so that on both sides of a window's edge
-    the level is the law's and only the timbre and the slide's length step. Writes touchdown.json and
-    pywopwop-touchdown.xml."""
+    tyre_type, damping (N s/m), spring (N/m), static_load_n, wheels: [{gear, position}]}.
+
+    The files cross-fade (flightgear_touchdown_xml). Each wheel's are drawn from one seed of its own, so on its grid they
+    are one waveform under different envelopes and levels, starting together: a blend of neighbours is one event, and
+    blends by amplitude. Two wheels touching together are two tyres, not one doubled. A one-shot keeps its length, so its
+    level follows the event's energy: a squeal's as the slip squared (the sink rate only sets how long it lasts), a
+    thump's as the sink rate squared. Each wheel's files are fitted to that law, and each carries its own difference from
+    it (correction_db). Writes touchdown.json and pywopwop-touchdown.xml."""
     from .synth import a_weighted_ms, write_wav
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -481,112 +501,137 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
     a_exposure = lambda x: float(10 * np.log10(max(a_weighted_ms(x, fs) * len(x) / fs, 1e-30) / 4e-10))
     shots = []
     for g in groups:
-        for v in slips:
+        for w in g["wheels"]:
+            take = seed + 104729 * (w["gear"] + 1)          # the wheel's own: its grid coherent, the wheels apart
+            tag = f"{g['name']}_g{w['gear']}"
+            for v in slips:
+                for s in sinks:
+                    for view in ("cockpit", "side"):
+                        x, E, dur = squeal_shot(g["tyre_type"], v * 0.514444, g["damping"], g["spring"], s * 0.3048,
+                                                g["static_load_n"], T_db if view == "cockpit" else None,
+                                                None if view == "cockpit" else exterior_m, mu, fs, take)
+                        shots.append(dict(x=x, file=f"touchdown_{tag}_squeal_{v:g}kt_{s:g}fps_{view}.wav", group=g["name"],
+                                          gear=w["gear"], kind="squeal", view=view, slip_kt=v, sink_fps=s,
+                                          slide_s=round(dur, 4), sound_j=E))
+                    if w is g["wheels"][0]:
+                        progress(f"  {g['name']:5s} squeal {v:4.0f} kt {s:4g} fps  slide {dur * 1e3:5.0f} ms  {E * 1e3:6.1f} mJ")
             for s in sinks:
-                for view in ("cockpit", "side"):
-                    x, E, dur = squeal_shot(g["tyre_type"], v * 0.514444, g["damping"], g["spring"], s * 0.3048,
-                                            g["static_load_n"], T_db if view == "cockpit" else None,
-                                            None if view == "cockpit" else exterior_m, mu, fs, seed + len(shots))
-                    shots.append(dict(x=x, file=f"touchdown_{g['name']}_squeal_{v:g}kt_{s:g}fps_{view}.wav", group=g["name"],
-                                      kind="squeal", view=view, slip_kt=v, sink_fps=s, slide_s=round(dur, 4), sound_j=E))
-                progress(f"  {g['name']:5s} squeal {v:4.0f} kt {s:4g} fps  slide {dur * 1e3:5.0f} ms  {E * 1e3:6.1f} mJ")
-        for s in sinks:
-            shots.append(dict(x=thump_shot(g["damping"], s * 0.3048, fs, seed + len(shots)),
-                              file=f"touchdown_{g['name']}_thump_{s:g}fps_cockpit.wav", group=g["name"], kind="thump",
-                              view="cockpit", sink_fps=s))
+                shots.append(dict(x=thump_shot(g["damping"], s * 0.3048, fs, take + 1),
+                                  file=f"touchdown_{tag}_thump_{s:g}fps_cockpit.wav", group=g["name"], gear=w["gear"],
+                                  kind="thump", view="cockpit", sink_fps=s))
     # the laws: exposure = K + 20 log10(axis), the axis the slip for a squeal and the sink rate for a thump
     axis = lambda sh: sh["slip_kt"] if sh["kind"] == "squeal" else sh["sink_fps"]
+    key = lambda sh: (sh["gear"], sh["kind"], sh["view"])
     for sh in shots:
         sh["exposure_dba"] = round(a_exposure(sh["x"]), 2)
-    K = {}
-    for key in {(sh["group"], sh["kind"], sh["view"]) for sh in shots}:
-        same = [sh for sh in shots if (sh["group"], sh["kind"], sh["view"]) == key]
-        K[key] = float(np.mean([sh["exposure_dba"] - 20 * np.log10(axis(sh)) for sh in same]))
-    # each file written at the top of its window on its axis (the volume, which the sound system holds to 1, then never
-    # needs more); the last windows run on, written as far over their centres as the ones before
-    top = {}
-    for name, centres, lo, hi in (("squeal", slips, 10.0, 1000.0), ("thump", sinks, 0.05, 100.0)):
-        r = [w[1] / c for c, w in zip(centres, _windows(centres, lo, hi))]
-        r[-1] = r[-2]
-        top[name] = dict(zip(centres, r))
+    K = {k: float(np.mean([sh["exposure_dba"] - 20 * np.log10(axis(sh)) for sh in shots if key(sh) == k]))
+         for k in {key(sh) for sh in shots}}
     for sh in shots:
-        law = K[(sh["group"], sh["kind"], sh["view"])] + 20 * np.log10(axis(sh))
+        law = K[key(sh)] + 20 * np.log10(axis(sh))
         sh["law_dba"] = round(float(law), 2)
         sh["correction_db"] = round(float(law - sh["exposure_dba"]), 3)
-        sh["boost"] = float(top[sh["kind"]][axis(sh)] * 10 ** (sh["correction_db"] / 20))
-    # the thumps at a gain of their own: as much under the cockpit's as lets the loudest fit, so that a firm touchdown
-    # still thumps harder than a soft one (the bank's gain is the propellers', and the estimate is an upper end)
-    loudest = max(np.abs(sh["x"]).max() * sh["boost"] for sh in shots if sh["kind"] == "thump") * 10 ** (gain_db["cockpit"] / 20)
-    thump_offset = float(min(0.0, -np.ceil(20 * np.log10(loudest) + 1.0)))
+        # a squeal plays loudest at its own node (the tent falls faster than the law rises): written there at full
+        # volume. A thump is written at its own level, the cross-fade interpolating between them
+        sh["boost"] = float(10 ** (sh["correction_db"] / 20)) if sh["kind"] == "squeal" else 1.0
     files = []
     for sh in shots:
-        g = gain_db["cockpit" if sh["view"] == "cockpit" else "exterior"] + (thump_offset if sh["kind"] == "thump" else 0.0)
-        # a burst of tens of milliseconds can have a hundredth of its samples bent under full scale unheard
-        y, limited = soft_limit(sh["x"] * sh["boost"] * 10 ** (g / 20.0))
-        if limited > 1e-2 * len(y):
-            raise ValueError(f"{sh['file']} would peak at {20 * np.log10(np.abs(y).max()):+.1f} dBFS at this gain")
+        G = 10 ** (gain_db["cockpit" if sh["view"] == "cockpit" else "exterior"] / 20.0)
+        extra = {}
+        if sh["kind"] == "thump":
+            # at its estimate; past full scale through the soft knee, driven in more slowly past THUMP_KNEE_DB over
+            over = 20 * np.log10(np.abs(sh["x"]).max() * G) + 0.1
+            held = max(0.0, over - THUMP_KNEE_DB) * (1.0 - THUMP_DRIVE)
+            y = sh["x"] * G * 10 ** (-held / 20)
+            if over > 0.0:
+                y, limited = soft_limit(y, knee=10 ** (-THUMP_KNEE_DB / 20))
+            else:
+                limited = 0
+            played = a_exposure(y / G)
+            r = float(np.dot(y, sh["x"]) / np.sqrt(np.dot(y, y) * np.dot(sh["x"], sh["x"])))
+            extra = dict(peak_over_db=round(float(over), 2), held_db=round(float(held), 2), played_dba=round(played, 2),
+                         limited_db=round(float(sh["law_dba"] - played), 2), distortion=round(1.0 - r * r, 3))
+        else:
+            # a burst of tens of milliseconds can have a hundredth of its samples bent under full scale unheard
+            y, limited = soft_limit(sh["x"] * sh["boost"] * G)
+            if limited > 1e-2 * len(y):
+                raise ValueError(f"{sh['file']} would peak at {20 * np.log10(np.abs(y).max()):+.1f} dBFS at this gain")
         write_wav(out / sh["file"], y, fs, 16, 1.0, seed=len(files))
-        files.append({k: v for k, v in sh.items() if k != "x"} | dict(limited_samples=int(limited)))
+        files.append({k: v for k, v in sh.items() if k != "x"} | dict(limited_samples=int(limited)) | extra)
     manifest = dict(aircraft=aircraft.name, generator="pywopwop touchdown", sample_rate=fs, exterior_distance_m=exterior_m,
-                    gain_db=gain_db, thump_offset_db=thump_offset, structure=airframe, slips_kt=list(slips),
+                    gain_db=gain_db, thump_knee_db=THUMP_KNEE_DB, thump_drive=THUMP_DRIVE, structure=airframe,
+                    slips_kt=list(slips),
                     sinks_fps=list(sinks), mu=mu,
                     groups=[{k: (v if k != "wheels" else [dict(gear=w["gear"], position=list(map(float, w["position"])))
                                                              for w in v]) for k, v in g.items()} for g in groups],
                     properties=TOUCHDOWN_PROPERTIES, files=files,
                     note="squeal: the wheel's spin-up loss by physics, its sound share and spectrum from recorded landings; "
-                         "thump: one recorded touchdown, at the edge of detection, written thump_offset_db under its "
-                         "estimate so that the loudest fits the cockpit's gain. exposure_dba: each file's own, at its "
-                         "window's centre; law_dba: what it plays at there (exposure = K + 20 log10 of the slip or sink)")
+                         "thump: one recorded touchdown, at the edge of detection, written at its estimate; where it would "
+                         "pass full scale through a soft knee, driven in at thump_drive of its growth past thump_knee_db "
+                         "over (held_db, limited_db, distortion: the clipper's share of its energy). Each wheel's files "
+                         "are one waveform under "
+                         "different envelopes, cross-faded by amplitude. exposure_dba: each file's own, at its node; "
+                         "law_dba: what it plays at there (exposure = K + 20 log10 of the slip or sink)")
     (out / "touchdown.json").write_text(json.dumps(manifest, indent=1))
     (out / "pywopwop-touchdown.xml").write_text(flightgear_touchdown_xml(manifest))
     return manifest
 
 
-def _windows(centres, lo, hi):
-    c = list(centres)
-    edges = [lo] + [float(np.sqrt(a * b)) for a, b in zip(c, c[1:])] + [hi]
-    return list(zip(edges[:-1], edges[1:]))
+def _tent(prop, nodes, i, lo, hi, floor=None):
+    """a node's weight on its axis, linear between its neighbours, 1 at it and 0 at them, held at 1 past the end nodes
+    (below the first rising from 0 at floor instead, if given); and the condition that it is inside its support (lo and
+    hi beyond the end nodes)"""
+    from .wind import _e, _v, _ramp_e
+    prev = nodes[i - 1] if i else floor
+    nxt = nodes[i + 1] if i < len(nodes) - 1 else None
+    w = [_ramp_e(prop, prev, nodes[i])] if prev is not None else []
+    w += [_ramp_e(prop, nxt, nodes[i])] if nxt is not None else []
+    within = (f"<greater-than>{prop}<value>{(lo if i == 0 else prev):g}</value></greater-than>"
+              f"<less-than>{prop}<value>{(nxt if nxt is not None else hi):g}</value></less-than>")
+    return w, within
 
 
 def flightgear_touchdown_xml(manifest, sound_dir="Sounds/pywopwop", exterior="side"):
-    """FlightGear <fx> entries, played once: each wheel's squeal for the slip and sink rate it touched down at, and its
-    strut's thump. The windows pick the file (its timbre and the slide's length); the volume makes the energy the law's,
-    the squeal's amplitude in proportion to the slip, the thump's to the sink rate, each file's own difference from the
-    law taken out, so a touchdown on a window's edge sounds as loud from either side. Each condition holds from the moment
-    the wheel's weight comes on until it lifts off, so it plays once a touchdown; the latched values
-    (TOUCHDOWN_PROPERTIES) are the flight model's to provide. Each file is written at the top of its window (its boost),
-    so the volume stays at 1 or under; past the last window it holds."""
+    """FlightGear <fx> entries, played once, cross-faded: each wheel's squeals at the grid's nodes around the slip and sink
+    rate it touched down at, weighted by tents on both axes (weights summing to one) and blended by amplitude, which is
+    right because each wheel's files are one waveform under different envelopes; and its strut's thumps the same way on
+    the sink rate. Each node's amplitude also follows the law, in proportion to the slip for a squeal and to the sink rate
+    for a thump, its file's own difference from the law taken out. Each condition holds from the moment the wheel's
+    weight comes on until it lifts off, inside the node's support, so the blend plays once a touchdown: up to four squeals
+    and two thumps a wheel, for a few tenths of a second. The latched values (TOUCHDOWN_PROPERTIES) are the flight
+    model's to provide. Below the first node and above the last the nearest plays alone, the volume held to 1."""
     from .wind import _e, _v
     P = manifest["properties"]
     have = {f["file"]: f for f in manifest["files"]}
-    vw = _windows(manifest["slips_kt"], 10.0, 1000.0)
-    sw = _windows(manifest["sinks_fps"], 0.05, 100.0)
+    slips, sinks = manifest["slips_kt"], manifest["sinks_fps"]
     out = []
     for g in manifest["groups"]:
         for w in g["wheels"]:
             n, pos = w["gear"], w["position"]
+            tag = f"{g['name']}_g{n}"
             sink = f"<property>{P['sink'].format(n=n)}</property>"
             slip = f"<property>{P['slip'].format(n=n)}</property>"
-            within = lambda p, lo, hi: (f"<greater-than>{p}<value>{lo:g}</value></greater-than>"
-                                        f"<less-than>{p}<value>{hi:g}</value></less-than>")
-            gain = lambda f, centre: _v(10 ** (f["correction_db"] / 20) / (centre * f["boost"]))
             entries = []
             for view in ("cockpit", exterior):
-                for v, (v0, v1) in zip(manifest["slips_kt"], vw):
-                    for s, (s0, s1) in zip(manifest["sinks_fps"], sw):
-                        f = have.get(f"touchdown_{g['name']}_squeal_{v:g}kt_{s:g}fps_{view}.wav")
+                for i, v in enumerate(slips):
+                    wv, inv = _tent(slip, slips, i, 10.0, 1000.0)
+                    for j, s in enumerate(sinks):
+                        f = have.get(f"touchdown_{tag}_squeal_{v:g}kt_{s:g}fps_{view}.wav")
                         if f:
-                            entries.append((f["file"], view, within(slip, v0, v1) + within(sink, s0, s1),
-                                            _e("product", slip, gain(f, v))))
-                for s, (s0, s1) in zip(manifest["sinks_fps"], sw):
-                    f = have.get(f"touchdown_{g['name']}_thump_{s:g}fps_{view}.wav")
+                            ws, ins = _tent(sink, sinks, j, 0.05, 100.0)
+                            vol = _e("product", *wv, *ws, slip, _v(10 ** (f["correction_db"] / 20) / (v * f["boost"])))
+                            entries.append((f["file"], view, inv + ins, vol))
+                for j, s in enumerate(sinks):
+                    f = have.get(f"touchdown_{tag}_thump_{s:g}fps_{view}.wav")
                     if f:
-                        entries.append((f["file"], view, within(sink, s0, s1), _e("product", sink, gain(f, s))))
+                        # each written at its own level: the weights interpolate the amplitude between them, from
+                        # nothing at no sink rate (exact while it grows as the sink rate, and through the limiting)
+                        ws, ins = _tent(sink, sinks, j, 0.05, 100.0, floor=0.0)
+                        entries.append((f["file"], view, ins, _e("product", *ws) if len(ws) > 1 else ws[0]))
             for fn, view, win, vol in entries:
                 view_c = ("<property>sim/current-view/internal</property>" if view == "cockpit"
                           else "<not><property>sim/current-view/internal</property></not>")
                 cond = _e("and", view_c, f"<property>{P['wow'].format(n=n)}</property>", win)
-                out.append(f"\t\t<touchdown>\n\t\t\t<name>pww-{fn[:-4]}-gear{n}</name>\n\t\t\t<mode>once</mode>\n"
+                out.append(f"\t\t<touchdown>\n\t\t\t<name>pww-{fn[:-4]}</name>\n\t\t\t<mode>once</mode>\n"
                            f"\t\t\t<path>{sound_dir}/{fn}</path>\n\t\t\t<condition>{cond}</condition>\n"
                            f"\t\t\t<volume><expression>{_e('clip', vol, '<clipMin>0</clipMin><clipMax>1</clipMax>')}"
                            "</expression></volume>\n"
