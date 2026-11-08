@@ -248,8 +248,35 @@ true only inside its speeds and with weight on the wheel (`wow`): at most two lo
 What could be checked: outside, the one light aircraft measurement found (three towed 5.00-5s, 30 m to the side, 60 dB(A);
 the model 60.5). In a cockpit, the camera's gain controls in the recordings leave only the moment of touchdown to read, so
 each airframe's transfer rests on one landing, and the P2006T's touchdown speed isn't in the picture. How the cockpit's level
-grows with speed is the model's alone. Not modelled: grass, concrete, wet runways, the touchdown's chirp, brakes, the nose
-wheel's thump. `tools/tyre_recordings.py` (the report's stage `tyres`) reproduces every number from the recordings.
+grows with speed is the model's alone. Not modelled: grass, concrete, wet runways, brakes, a runway's joints.
+`tools/tyre_recordings.py` (the report's stage `tyres`) reproduces every number from the recordings.
+
+At touchdown a wheel meets the runway not turning and slides until friction spins it up. The slide loses
+I (V/r)²/2 whatever the load does, so a firm touchdown gives a short loud squeal and a gentle one a long quiet squeal of the
+same energy. `make_touchdown_bank` writes one-shots of each wheel group's squeal by ground speed and sink rate, in the
+cockpit and outside, and its strut's thump by sink rate, in the cockpit:
+
+```python
+groups = [dict(name="main", tyre_type="6.00-6", damping=8071.0, spring=76296.0, static_load_n=5671.0,
+               wheels=[dict(gear=1, position=(-0.437, 1.0, -1.172)), dict(gear=2, position=(-0.437, -1.0, -1.172))]),
+          dict(name="nose", tyre_type="5.00-5", damping=2846.0, spring=26926.0, static_load_n=2002.0,
+               wheels=[dict(gear=0, position=(2.463, 0.0, -1.172))])]
+tyre.make_touchdown_bank(load_prop_aircraft("x57"), "out/x57_touchdown", groups, gain, "p2006t")
+```
+
+| Part | Model |
+|---|---|
+| Spin-up | the wheel's inertia (the tyre's weight, its radius) against the friction on the load: the strut's damping on the sink rate, rising as the wheel squashes its tyre, then its spring |
+| Squeal | a share of the spin-up's loss, -48 dB, from a P2006T's landing; an ASK 21's comes within 3 dB. Its spectrum and its line (wandering or gliding, a half to a tenth of the energy) from the same two recordings, per tyre size |
+| Thump | the strut's damping force on the airframe, its level from the P2006T's touchdown, at the edge of what the recording shows |
+
+`pywopwop-touchdown.xml` plays them once per wheel and touchdown, chosen by the sink rate and ground speed the flight
+model holds for that wheel from the moment its weight comes on until it lifts off: `/fdm/jsbsim/gear/unit[n]/touchdown-sink-fps`
+and `touchdown-speed-kt`, proposals the flight model has to provide. Each file is written at the top of its window, so the
+volume never needs more than 1; past 4 fps the 4 fps sounds play at full volume. The squeal is checked against the
+P2006T's in length (87 against 83 ms), in how much of it is one line (47 %) and in its bands (within 3 dB from 630 Hz
+to 5 kHz). The thumps are written `thump_offset_db` under their estimate (20 dB for the X-57) so that the firmest fits a
+bank whose gain the propellers set.
 
 ## Turbine engines
 
@@ -372,7 +399,8 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
 - The FlightGear section's volumes, evaluated as SimGear does: the loops add up to one at any airspeed, vertical
   speed and height.
 - Tyres: the truck tyre they're scaled from comes back within 1 dB at 1 m, and three towed 5.00-5s 30 m to the side
-  within 3 dB of the 60 dB(A) measured (the model 60.5).
+  within 3 dB of the 60 dB(A) measured (the model 60.5). A wheel's spin-up loses I (V/r)²/2 to 1 %, its squeal carries
+  its share of that, and the P2006T's recorded touchdown, 0.101 s at 58 kt, comes back from 0.78 fps on the X-57's struts.
 - Wind: the wall pressure within Bies's range of the dynamic pressure; the FlightGear section's loops add up to the
   altitude's amplitude around the equivalent airspeed.
 - Airplane mode: the trim follows the preset's trims; the MV-22B's rotor power within 1.2 % of its flight model's
@@ -528,7 +556,8 @@ fountain is the XV-15's inflow deficit scaled by the chord (a model's probes fou
 falling again over the wing, which isn't modelled), and its switching from rotor to rotor only each revolution's
 strength. A propeller aircraft's blades are rigid and each disc takes the wing's upwash as one angle, with no slipstream from its neighbours,
 no fuselage's wall patches in its cockpit, and its motors' level assumed. A tyre's level in a cockpit rests on one recorded
-landing per airframe and grows with speed as the model says; tyres roll on asphalt only. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
+landing per airframe and grows with speed as the model says; tyres roll on asphalt only. A touchdown's thump rests on
+one event at the edge of its recording, and the flight model has to hold each wheel's touchdown for the one-shots. A glider's slip is an estimate throughout: Fink's strut stands in for a fuselage across the flow, a far wake's
 laws for the near wakes on the leeward wing and tail, and the shell's mass is assumed; the slip's rolling moment, held by
 the ailerons, isn't modelled, and neither is the wing's lift falling as the glider banks. A rotorcraft's cockpit
 wind is an attached boundary layer's: no separated flow round the windscreen's frame, no leaks' own flow noise, no

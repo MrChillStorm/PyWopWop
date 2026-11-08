@@ -722,6 +722,26 @@ def tyres():
     num("NTyPow", x["low_speed_power"])
     rows = ["%.0f & %s & %s & %s" % (h, f(u, "%.1f"), f(v, "%.1f"), f(u - v, "%.1f")) for h, u, v in zip(hz, a["module"], p["module"])]
     write("tyres", tabular("rrrr", "Band, Hz & ASK~21 & P2006T & difference", rows))
+    d = t["touchdown"]
+    num("NTdEffP", d["p2006t"]["efficiency_db"])
+    num("NTdEffA", d["ask21"]["efficiency_db"])
+    num("NTdEffDiff", d["p2006t"]["efficiency_db"] - d["ask21"]["efficiency_db"])
+    num("NTdSlide", d["p2006t"]["seconds"], "%.2f")
+    num("NTdSink", d["p2006t"]["sink_fps"], "%.2f")
+    num("NTdLost", d["p2006t"]["lost_j"] / 1e3)
+    num("NTdToneP", 100 * d["tonal_share"][0], "%.0f")
+    num("NTdToneA", 100 * d["tonal_share"][1], "%.0f")
+    th = d["thump"]
+    rises = [r for h, r in zip(th["hz"], th["rise_db"]) if 75 <= h <= 260 and r > 0]
+    num("NTdRiseLo", min(rises), "%.0f")
+    num("NTdRiseHi", max(rises), "%.0f")
+    x = d["x57"]
+    num("NTdSlideSoft", 1e3 * x["main"]["slide_s"][0], "%.0f")
+    num("NTdSlideFirm", 1e3 * x["main"]["slide_s"][1], "%.0f")
+    num("NTdSqCock", x["main"]["cockpit_dba"], "%.0f")
+    num("NTdSqSide", x["main"]["side_dba"], "%.0f")
+    num("NTdSqNose", x["nose"]["cockpit_dba"], "%.0f")
+    num("NTdThump", x["main"]["thump_1fps_dba"], "%.0f")
 
 
 def bench():

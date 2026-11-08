@@ -181,8 +181,83 @@ def p2006t():
     return out
 
 
+def touchdown():
+    """the squeals in both recordings, absolute at each touchdown, their sound energy through each airframe's transfer
+    against what the wheel loses spinning up; the P2006T's sink rate from its slide; the one thump"""
+    out = {}
+    sq = (fc >= 500) & (fc <= 2000)              # the transfers' measured bands
+
+    def squeal(name, m, fs, t0, t1, bg, k, airframe, tyre_type, wheels, kt):
+        p2 = np.maximum(thirds(m, fs, t0, t1, 2048) - bg, 0) * k
+        W = p2 / 4e-10 * 1e-12 / 10 ** (T.structure_db(fc, airframe) / 10)
+        E = float(np.sum(W[sq]) * (t1 - t0))
+        lost = wheels * 0.5 * T.wheel_inertia(tyre_type) * (kt * KT / T.TYRE_TYPES[tyre_type]["rolling_radius_m"]) ** 2
+        # the squeal's own spectrum: the cockpit's less the transfer where it was measured (to 2 kHz), above that
+        # falling as the cockpit's does; bands with nothing over the background interpolated
+        band = (fc >= 500) & (fc <= 8000)
+        L = 10 * np.log10(np.maximum(p2[band], 1e-20))
+        f = fc[band]
+        ok = L > -100
+        L = np.interp(np.log(f), np.log(f[ok]), L[ok])
+        Tb = T.structure_db(f, airframe)
+        src = np.where(f <= 2000, L - Tb, L - L[f <= 2000][-1] + (L - Tb)[f <= 2000][-1])
+        src = src - 10 * np.log10(np.sum(10 ** (src / 10)))
+        out[name] = dict(seconds=t1 - t0, cockpit_dba=dba(p2, band), sound_j=E, lost_j=lost,
+                         efficiency_db=float(10 * np.log10(E / lost)), source_db=src.round(1).tolist())
+    fs, m = load("p2006t_ymen")
+    before = thirds(m, fs, 384.5, 388.3)
+    k = np.sum(wind(65)[REF]) / np.sum(before[REF])
+    squeal("p2006t", m, fs, 388.512, 388.613, thirds(m, fs, 384.5, 388.3, 2048), k, "p2006t", "6.00-6", 2, 58)
+    # the sink rate that makes a main wheel's slide last as long, on the X-57's strut (the same airframe)
+    durs = {fps: T.spin_up(58 * KT, "6.00-6", 8071.0, 76296.0, fps * 0.3048, 5671.0)[0][-1] for fps in np.arange(0.2, 3.01, 0.02)}
+    out["p2006t"]["sink_fps"] = float(min(durs, key=lambda x: abs(durs[x] - 0.101)))
+    # the mains' thump: what the 0.15 s from their touchdown hold over the approach's 0.15 s windows, band by band (the
+    # sink rate known from the slide); and the later event, 1.8 s on, against the same
+    lo = (fc >= 45) & (fc <= 700)
+    win = np.array([thirds(m, fs, t, t + 0.15, 4096) for t in np.arange(385.0, 388.3, 0.15)]) * k
+    mean, sd = win.mean(0), (10 * np.log10(np.maximum(win, 1e-30))).std(0)
+    td = thirds(m, fs, 388.50, 388.65, 4096) * k
+    own = mean * np.maximum(td / mean - 1.0, 0.0)
+    ev = np.maximum(thirds(m, fs, 390.26, 390.41, 4096) - thirds(m, fs, 389.0, 390.1, 4096), 0) * k
+    db = lambda x: (10 * np.log10(np.maximum(x, 1e-20) / 4e-10))[lo].round(1).tolist()
+    out["thump"] = dict(hz=fc[lo].round().tolist(), mains=db(own), rise_db=(10 * np.log10(td / mean))[lo].round(1).tolist(),
+                        scatter_db=sd[lo].round(1).tolist(), cabin=db(mean), later_event=db(ev),
+                        force_n=8071.0 * out["p2006t"]["sink_fps"] * 0.3048)
+    fs2, m2 = load("ask21b_landing")
+    g = G.load_glider("ask21")
+    head = G.to_body(*g.cockpit["front"])
+    a47 = (lambda sp: sp["wind"] + sp["airframe"])(
+        G.spectra(g, G.GliderCondition(airspeed_kt=47, load_factor=1.0, turbulence_ms=0.5), head, True)[0])
+    k2 = np.sum(a47[REF]) / np.sum(thirds(m2, fs2, 586.0, 594.3)[REF])
+    bg2 = thirds(m2, fs2, 592.5, 594.3, 2048)
+    squeal("ask21_touch1", m2, fs2, 594.428, 594.503, bg2, k2, "ask21", "5.00-5", 1, 47)
+    squeal("ask21_touch2", m2, fs2, 594.769, 594.94, bg2, k2, "ask21", "5.00-5", 1, 47)
+    # a skip spins the wheel up in two goes: together they lose what one slide would
+    E = out["ask21_touch1"]["sound_j"] + out["ask21_touch2"]["sound_j"]
+    out["ask21"] = dict(sound_j=E, lost_j=out["ask21_touch1"]["lost_j"],
+                        efficiency_db=float(10 * np.log10(E / out["ask21_touch1"]["lost_j"])))
+    out["module_efficiency_db"] = T.SQUEAL_EFFICIENCY_DB
+    out["tonal_share"] = [0.47, 0.62]
+    # the X-57's: a main wheel and the nose wheel at 60 kt, by sink rate; exposures (dB(A) over the event)
+    ac = load_prop_aircraft("x57")
+    Tx = T.structure_db(fc, "p2006t")
+    sel = lambda x: float(10 * np.log10(np.sum(x ** 2) / 48000.0 / 4e-10))
+    from pywopwop.synth import a_weighted_ms
+    sel_a = lambda x: float(10 * np.log10(a_weighted_ms(x, 48000.0) * len(x) / 48000.0 / 4e-10))
+    struts = dict(main=("6.00-6", 8071.0, 76296.0, 5671.0), nose=("5.00-5", 2846.0, 26926.0, 2002.0))
+    x57 = {}
+    for name, (ty, c, k, N) in struts.items():
+        slides = [T.spin_up(60 * KT, ty, c, k, fps * 0.3048, N)[0][-1] for fps in (0.25, 4.0)]
+        ck, E, _ = T.squeal_shot(ty, 60 * KT, c, k, 0.3048, N, transfer_db=Tx)
+        sd, _, _ = T.squeal_shot(ty, 60 * KT, c, k, 0.3048, N, distance_m=30.0)
+        x57[name] = dict(slide_s=slides, sound_mj=E * 1e3, cockpit_dba=sel_a(ck), side_dba=sel_a(sd),
+                         thump_1fps_dba=sel_a(T.thump_shot(c, 0.3048)), thump_1fps_db=sel(T.thump_shot(c, 0.3048)))
+    out["x57"] = x57
+    return out
+
+
 def results():
-    res = dict(outside=outside(), ask21=ask21(), p2006t=p2006t(), x57=x57())
+    res = dict(outside=outside(), ask21=ask21(), p2006t=p2006t(), x57=x57(), touchdown=touchdown())
     loop = T.noise_loop(T.tyre_power(0.16, 0.4445, 30.0) * T.RHO_C / (2 * np.pi), duration=4.0)
     res["loop_kurtosis"] = round(texture(loop, 48000.0), 2)
     return res
@@ -194,7 +269,7 @@ def main():
     print(f"outside: reference {o['reference_1m']['model']:.1f} dB(A) at 1 m (measured {o['reference_1m']['measured']:.1f}); "
           f"car {o['car_80kmh_7m5']['model']:.1f} (label about 70); towed aircraft {o['towed_aircraft_55mph_30m']['model_smooth']:.1f} "
           f"on smooth asphalt (measured 60)")
-    for name in ("ask21", "p2006t", "x57"):
+    for name in ("ask21", "p2006t", "x57", "touchdown"):
         print(f"\n{name}:")
         for key, v in res[name].items():
             print(f"  {key}: {v}")

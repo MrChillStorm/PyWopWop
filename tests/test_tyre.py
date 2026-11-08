@@ -84,3 +84,54 @@ def test_bank_and_xml(tmp_path):
         c = ET.tostring(e.find("condition"), encoding="unicode")
         assert "wow" in c and "greater-than" in c
     assert json.loads((tmp_path / "manifest.json").read_text())["speeds_kt"] == [5.0, 30.0, 60.0]
+
+
+MAIN = dict(damping=8071.0, spring=76296.0, static_load_n=5671.0)     # the X-57's main strut
+
+
+def test_spin_up_loses_half_the_work():
+    """whatever the load does, the slide loses what the wheel gains: I omega^2 / 2; a firmer touchdown slides shorter"""
+    I, r = T.wheel_inertia("6.00-6"), T.TYRE_TYPES["6.00-6"]["rolling_radius_m"]
+    V = 30.0
+    durations = []
+    for fps in (0.25, 1.0, 4.0):
+        t, slip, P = T.spin_up(V, "6.00-6", MAIN["damping"], MAIN["spring"], fps * 0.3048, MAIN["static_load_n"])
+        assert np.sum(P) * (t[1] - t[0]) == pytest.approx(0.5 * I * (V / r) ** 2, rel=0.01)
+        assert slip[-1] < 0.01 * V
+        durations.append(t[-1])
+    assert durations[0] > durations[1] > durations[2]
+    # the recorded P2006T touchdown: 58 kt, its slide 0.101 s, at 0.78 fps on these struts
+    t, _, _ = T.spin_up(58 * 0.514444, "6.00-6", MAIN["damping"], MAIN["spring"], 0.78 * 0.3048, MAIN["static_load_n"])
+    assert t[-1] == pytest.approx(0.101, abs=0.005)
+
+
+def test_squeal_energy():
+    """the squeal outside carries the efficiency's share of the spin-up's loss, the same at any sink rate"""
+    fs, r = 48000.0, 30.0
+    for fps in (0.5, 3.0):
+        x, E, dur = T.squeal_shot("6.00-6", 30.0, MAIN["damping"], MAIN["spring"], fps * 0.3048, MAIN["static_load_n"],
+                                  distance_m=r, fs=fs)
+        lost = 0.5 * T.wheel_inertia("6.00-6") * (30.0 / T.TYRE_TYPES["6.00-6"]["rolling_radius_m"]) ** 2
+        assert E == pytest.approx(10 ** (T.SQUEAL_EFFICIENCY_DB / 10) * lost, rel=0.01)
+        heard = np.sum(x ** 2) / fs * 2 * np.pi * r ** 2 / T.RHO_C
+        assert 10 * np.log10(heard / E) == pytest.approx(0.0, abs=1.5)
+
+
+def test_thump_scales_with_force():
+    a, b = T.thump_shot(8071.0, 0.3), T.thump_shot(8071.0, 0.6)
+    assert 10 * np.log10(np.sum(b ** 2) / np.sum(a ** 2)) == pytest.approx(6.0, abs=1.5)
+
+
+def test_touchdown_bank(tmp_path):
+    from pywopwop.propeller import load_prop_aircraft
+    groups = [dict(name="main", tyre_type="6.00-6", wheels=[dict(gear=1, position=(-0.44, 1.0, -1.17)),
+                                                            dict(gear=2, position=(-0.44, -1.0, -1.17))], **MAIN)]
+    m = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path, groups, dict(cockpit=-30.0, exterior=-20.0), "p2006t",
+                              speeds=(45.0, 75.0), sinks=(0.5, 2.0), progress=lambda s: None)
+    assert len(m["files"]) == 2 * 2 * 2 + 2
+    assert all(f["boost"] >= 1.0 for f in m["files"])
+    assert m["thump_offset_db"] <= 0.0
+    root = ET.fromstring((tmp_path / "pywopwop-touchdown.xml").read_text())
+    entries = root.find("fx").findall("touchdown")
+    assert len(entries) == 2 * (2 * 2 * 2 + 2)
+    assert all(e.find("mode").text == "once" for e in entries)
