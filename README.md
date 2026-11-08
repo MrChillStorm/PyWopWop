@@ -257,17 +257,17 @@ same energy. `make_touchdown_bank` writes one-shots of each wheel group's squeal
 wheel's rim speed) and sink rate, in the cockpit and outside, and its strut's thump by sink rate, in the cockpit:
 
 ```python
-groups = [dict(name="main", tyre_type="6.00-6", damping=8071.0, spring=76296.0, static_load_n=5671.0,
+groups = [dict(name="main", tyre_type="6.00-6", damping=8071.0, spring=76296.0, static_load_n=5671.0, mass_kg=617.1,
                wheels=[dict(gear=1, position=(-0.437, 1.0, -1.172)), dict(gear=2, position=(-0.437, -1.0, -1.172))]),
-          dict(name="nose", tyre_type="5.00-5", damping=2846.0, spring=26926.0, static_load_n=2002.0,
+          dict(name="nose", tyre_type="5.00-5", damping=2846.0, spring=26926.0, static_load_n=2002.0, mass_kg=320.7,
                wheels=[dict(gear=0, position=(2.463, 0.0, -1.172))])]
 tyre.make_touchdown_bank(load_prop_aircraft("x57"), "out/x57_touchdown", groups, gain, "p2006t")
 ```
 
 | Part | Model |
 |---|---|
-| Spin-up | the wheel's inertia (the tyre's weight, its radius) against the friction on the load: the strut's damping on the sink rate, rising as the wheel squashes its tyre, then its spring |
-| Squeal | a share of the spin-up's loss, -48 dB, from a P2006T's landing; an ASK 21's comes within 3 dB. Its spectrum and its line (wandering or gliding, a half to a tenth of the energy) from the same two recordings, per tyre size |
+| Spin-up | the wheel's inertia (the tyre's weight, its radius) against the friction on the load: the strut's damping on the rate it compresses, rising as the wheel squashes its tyre, and its spring, stopping the airframe's mass at the wheel (`strut_mass`, from the aircraft's mass and pitch inertia) as the wing sheds the weight onto it over 0.3 s |
+| Squeal | a share of the spin-up's loss, -48 dB, from a P2006T's landing; an ASK 21's comes within 3 dB. It follows the wheel's load, holding its level to the end of the slide as the recorded one does. Its spectrum and its line (wandering or gliding, a half to a tenth of the energy) from the same two recordings, per tyre size |
 | Thump | the strut's damping force on the airframe, its level from the P2006T's touchdown, at the edge of what the recording shows |
 
 `pywopwop-touchdown.xml` plays them once per wheel and touchdown, chosen by the sink rate and slip the flight model holds
@@ -278,13 +278,20 @@ the grid's nodes around a touchdown blend by amplitude, with tent weights that s
 squeals and two thumps a wheel, for a few tenths of a second). Uncorrelated files blended so would lose up to 3 dB between
 nodes, and blended by equal power they keep the level but sound like two tyres. Each node's amplitude follows the event's
 energy, as the slip squared for a squeal (the sink rate only sets how long it lasts) and as the sink rate squared for a
-thump, its file's own difference from that law taken out: the blends stay within 0.6 dB of the law anywhere on the grid.
+thump, its file's own difference from that law taken out. Neighbours' envelopes differ (a firm touchdown's squeal is
+front-loaded, a gentle one's held), which would cost a blend up to 0.9 dB between nodes; each squeal's volume puts that
+back from the neighbours' correlation (the manifest's `coherence`), and the blends stay within 0.3 dB of the law
+anywhere on the grid. The volumes use SimGear's `div` and `sqrt`.
 Both mains touching together add 3 dB, as two tyres do. Past 105 kt of slip and 4 fps the last files play at full volume. The squeal is checked against the
-P2006T's in length (87 against 83 ms), in how much of it is one line (47 %) and in its bands (within 3 dB from 630 Hz
-to 5 kHz). The thumps play at their estimate. Where one would pass full scale at a gain the propellers set, it goes
+P2006T's in level (0.2 dB(A) over), in how its energy falls through the slide (by 10 ms within 1.6 dB rms, 54 % in the
+first half against 53 %), in how much of it is one line (44 % against 47 %, seed to seed ±6) and in its bands (within
+2.5 dB from 630 Hz to 6.3 kHz). The slides are checked against the X-57's flight model in JSBSim, which slows the sink
+as the strut does: 66 and 43 ms against its 65 and 39 at 2.6 and 4 fps, and 172 and 75 ms against a landing flown in
+FlightGear's 175 and 75 at 1 and 2.6 fps. How fast the wing sheds the weight is the pilot's: with the controls held
+JSBSim's mains slide 357 ms at 0.95 fps, against 159 here. The thumps play at their estimate. Where one would pass full scale at a gain the propellers set, it goes
 through a soft knee 6 dB under full scale, as a limiter would, and past 6 dB over full scale it is driven in at half its
-growth: an X-57 main thump plays 1.9 dB under its estimate at 1 fps, 5.8 at 2 and 9.9 at 4, still louder each time, with
-the clipper's distortion at 5, 10 and 16 % of its energy.
+growth: an X-57 main thump plays 0.5 dB under its estimate at 1 fps, 3.0 at 2 and 6.9 at 4, still louder each time, with
+the clipper's distortion at 1, 6 and 11 % of its energy.
 
 ## Turbine engines
 
@@ -408,7 +415,9 @@ shaft gives its blades' azimuth behind the first's as `index_deg`.
   speed and height.
 - Tyres: the truck tyre they're scaled from comes back within 1 dB at 1 m, and three towed 5.00-5s 30 m to the side
   within 3 dB of the 60 dB(A) measured (the model 60.5). A wheel's spin-up loses I (V/r)²/2 to 1 %, its squeal carries
-  its share of that, and the P2006T's recorded touchdown, 0.101 s at 58 kt, comes back from 0.78 fps on the X-57's struts.
+  its share of that, and the P2006T's recorded touchdown, 0.101 s at 58 kt, comes back from 1.28 fps on the X-57's struts.
+  The X-57's slides within 10 % of JSBSim's at 2.6 and 4 fps (`tools/jsbsim_touchdown.py`, on the X-57's flight
+  model), and within 5 % of a landing flown in FlightGear.
 - Wind: the wall pressure within Bies's range of the dynamic pressure; the FlightGear section's loops add up to the
   altitude's amplitude around the equivalent airspeed.
 - Airplane mode: the trim follows the preset's trims; the MV-22B's rotor power within 1.2 % of its flight model's

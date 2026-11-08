@@ -322,10 +322,18 @@ def flightgear_tyre_xml(manifest, sound_dir="Sounds/pywopwop", exterior="side"):
 #
 # A wheel meets the runway not turning. Its tread slides until friction spins it up to the ground speed V: the load N on
 # it gives a torque mu N r, so the slide lasts until mu r^2 times the integral of N reaches I V. Whatever N does, the slide
-# turns half of the work the friction does into the wheel's spin and loses the other half, I (V / r)^2 / 2: 3.5 kJ for a
+# turns half of the work the friction does into the wheel's spin and loses the other half, I (V / r)^2 / 2: 4.1 kJ for a
 # P2006T's two mains at 58 kt. A squeal is a fixed share of that loss, so a firm touchdown gives a short loud squeal and a
-# gentle one a long quiet one of the same energy. The load in the first instants is the strut's damping on the sink rate,
-# rising over the time the unsprung wheel takes to squash its tyre, then its spring; and the weight the wing sheds.
+# gentle one a long quiet one of the same energy. The load is the strut's, as a flight model has it: its damping on the
+# rate it compresses (rising over the time the unsprung wheel takes to squash its tyre) and its spring, stopping the
+# airframe's mass at the wheel as the wing sheds the weight onto it. A firm touchdown's damping spins the wheel up before
+# the sink has slowed; a gentle one's sink is soon stopped, and the weight, coming on as the wing gives it up, finishes
+# the job. On the X-57's flight model in JSBSim (1.3.3, trimmed at 75 kt, the controls held) the mains slide 65 and
+# 39 ms at 2.6 and 4.0 fps, against this model's 66 and 43; the first 80 ms of the load at 0.95 fps agree within 1 %
+# given the wing's lift. How fast the wing then sheds the weight is the pilot's. Held controls shed it slowly: 357 ms
+# at 0.95 fps, against this model's 159. A landing flown in FlightGear slid 175 and 75 ms at 1 and 2.6 fps and about
+# 85 kt, which SETTLE_S gives (172 and 75).
+SETTLE_S = 0.3
 
 # Tyres and wheels (Goodyear's databook 2022 for the sizes and loaded radii; distributor catalogues for the tyres'
 # weights, 11 and 7 lb; the wheels, tubes, brakes and the tyres' vertical stiffness, from their rated loads at a third
@@ -342,7 +350,9 @@ TYRE_TYPES = {
 # a line: its frequency, glide and wander, and the share of the energy it takes so that the squeal, heard in its
 # cockpit, has as much within 60 Hz of its strongest line as the recording (47 and 62 %). A 6.00-6: a P2006T's two
 # mains at about 58 kt, 0.10 s, the line wandering 1.08-1.27 kHz. A 5.00-5: an ASK 21's main wheel at 47 kt, its
-# second touch after a skip, 0.17 s, the line gliding from 1.78 to 1.69 kHz.
+# second touch after a skip, 0.17 s, the line gliding from 1.78 to 1.69 kHz. The P2006T's squeal holds its level to
+# the end of the slide, where the friction's power fades with the slip: its sound follows the load, as a squeal excited
+# by the friction force would (the recorded envelope by 10 ms within 1.6 dB rms of the load's, 3.6 of the power's).
 SQUEAL = {
     "6.00-6": dict(hz=[501.0, 630.0, 794.0, 1000.0, 1259.0, 1585.0, 1995.0, 2512.0, 3162.0, 3981.0, 5012.0, 6310.0, 7943.0],
                    db=[-44.1, -25.3, -14.4, -6.4, -3.3, -8.7, -12.6, -13.1, -17.9, -25.6, -30.8, -33.0, -40.1],
@@ -355,12 +365,13 @@ SQUEAL = {
 # two mains at 58 kt, the sound power taken from the cockpit through its rolling transfer (STRUCTURES) in the bands it
 # was measured in, 500 Hz to 2 kHz, assuming a squeal's contact forces shake the structure as a rolling tyre's do. The
 # ASK 21's two touches, through their own camera's gain and their own transfer, come to 3 dB under it. The slide's
-# 0.101 s puts that touchdown at 0.78 fps on the X-57's struts.
+# 0.101 s puts that touchdown at 1.28 fps on the X-57's main struts (0.88 to 1.46 fps for a wing shedding the weight
+# over 0.1 to 3 s).
 SQUEAL_EFFICIENCY_DB = -48.1
 
 # A strut's thump in the cockpit: the force step its damping puts into the airframe at contact, damping times the sink
 # rate, its level as the force squared. Measured at the P2006T's main touchdown, whose sink rate the slide gives
-# (tools/tyre_recordings.py): on the X-57's main struts, 8071 N s/m at 0.78 fps, 1.92 kN. What the 0.15 s from the
+# (tools/tyre_recordings.py): on the X-57's main struts, 8071 N s/m at 1.28 fps, 3.15 kN. What the 0.15 s from the
 # touchdown hold over the approach's 0.15 s windows stands 2 to 5 dB over their scatter, so this is at the edge of
 # what the recording shows, good to perhaps 5 dB, and the camera, fixed to the airframe, may hear the shaking itself.
 # Third-octave levels over those 0.15 s, dB re 20 uPa, 79-630 Hz: the 126 and 158 Hz bands, where the engines' slowing
@@ -368,7 +379,7 @@ SQUEAL_EFFICIENCY_DB = -48.1
 # is likely the nose wheel coming down harder; its sink rate can't be read.
 THUMP = dict(hz=[79.0, 100.0, 126.0, 158.0, 200.0, 251.0, 316.0, 398.0, 501.0, 631.0],
              db=[95.8, 101.7, 99.3, 97.0, 94.6, 89.2, 78.1, 83.5, 75.6, 80.9], window_s=0.15,
-             force_n=8071.0 * 0.78 * 0.3048, decay_s=0.05)
+             force_n=8071.0 * 1.28 * 0.3048, decay_s=0.05)
 
 
 def wheel_inertia(tyre_type):
@@ -379,21 +390,44 @@ def wheel_inertia(tyre_type):
     return t["tyre_kg"] * (0.8 * R) ** 2 + t["wheel_kg"] * (0.35 * R) ** 2
 
 
-def spin_up(speed_ms, tyre_type, damping, spring, sink_ms, static_load_n, mu=0.5, settle_s=1.0, dt=1e-4):
+def strut_mass(mass_kg, iyy_kgm2, arm_m, pivot_m=None):
+    """the airframe's mass as a strut feels it, its contact arm_m ahead of (or behind) the centre of gravity: rising
+    against the force and pitching about the centre of gravity, 1 / (1/m + arm^2 / Iyy); or, with the other wheels
+    already down pivot_m behind it, pitching about them, (Iyy + m (pivot_m - arm_m)^2) / pivot_m^2. Shared by wheels
+    touching together."""
+    if pivot_m is None:
+        return 1.0 / (1.0 / mass_kg + arm_m ** 2 / iyy_kgm2)
+    return (iyy_kgm2 + mass_kg * (pivot_m - arm_m) ** 2) / pivot_m ** 2
+
+
+def spin_up(speed_ms, tyre_type, damping, spring, sink_ms, static_load_n, mu=0.5, settle_s=SETTLE_S, mass_kg=None,
+            dt=1e-4):
     """the wheel's slide from touching down to rolling (speed_ms: its slip then, the ground speed less its rim speed; the
-    ground speed for a wheel not turning): times (s), slip speed (m/s) and friction power (W). The load is
-    the strut's damping on the sink rate (rising over the tyre's squash) plus its spring as it compresses, and at least
-    the wheel's static load coming on over settle_s as the wing sheds it. mu: the flight model's sliding friction."""
+    ground speed for a wheel not turning): times (s), slip speed (m/s) and friction power (W). The load is the strut's,
+    as a flight model's: its damping on the rate it compresses (rising over the time the unsprung wheel takes to squash
+    its tyre) plus its spring, never pulling. The strut stops the airframe's mass at the wheel (mass_kg, strut_mass; the
+    static load's by default) coming down at sink_ms, the wing shedding the weight onto it over settle_s, so a gentle
+    touchdown's load is soon the weight's alone and its slide is long. mu: the flight model's sliding friction."""
     t = TYRE_TYPES[tyre_type]
     I, r = wheel_inertia(tyre_type), t["rolling_radius_m"]
     tau = 0.5 * np.pi * np.sqrt(t["unsprung_kg"] / t["tyre_stiffness"])
-    n = int(5.0 / dt)
-    tt = np.arange(n) * dt
-    N = np.maximum(damping * sink_ms * np.minimum(tt / tau, 1.0) + spring * sink_ms * tt, static_load_n * tt / settle_s)
-    w = np.concatenate(([0.0], np.cumsum(mu * N * r / I * dt)))[:n]
-    slip = speed_ms - w * r
-    end = int(np.argmax(slip <= 0.0)) if np.any(slip <= 0.0) else n
-    return tt[:end], slip[:end], mu * N[:end] * slip[:end]
+    m = mass_kg if mass_kg else static_load_n / 9.80665
+    n_max = int(5.0 / dt)
+    x, v, rim = 0.0, sink_ms, 0.0
+    N = np.zeros(n_max)
+    rims = np.zeros(n_max)
+    i = 0
+    while i < n_max and rim < speed_ms:
+        ti = i * dt
+        Ni = max(damping * v * min(ti / tau, 1.0) + spring * x, 0.0)
+        N[i], rims[i] = Ni, rim
+        v += (static_load_n * min(ti / settle_s, 1.0) - Ni) / m * dt
+        x = max(x + v * dt, 0.0)
+        rim += mu * Ni * r * r / I * dt
+        i += 1
+    tt = np.arange(i) * dt
+    slip = speed_ms - rims[:i]
+    return tt, slip, mu * N[:i] * slip
 
 
 def _shape(tab, f):
@@ -436,10 +470,10 @@ def _burst(band_energy, tone_energy, tone_hz, glide_per_s, envelope, fs, seed, p
 
 
 def squeal_shot(tyre_type, speed_ms, damping, spring, sink_ms, static_load_n, transfer_db=None, distance_m=None, mu=0.5,
-                fs=48000.0, seed=1):
+                fs=48000.0, seed=1, mass_kg=None):
     """a wheel's touchdown squeal (Pa): in a cockpit through the airframe's transfer (transfer_db: dB by BANDS, as
     STRUCTURES) or outside at distance_m over a hard ground. Returns (signal, its sound energy J, the slide's s)."""
-    tt, slip, P = spin_up(speed_ms, tyre_type, damping, spring, sink_ms, static_load_n, mu)
+    tt, slip, P = spin_up(speed_ms, tyre_type, damping, spring, sink_ms, static_load_n, mu, mass_kg=mass_kg)
     lost = np.sum(P) * (tt[1] - tt[0]) if len(tt) > 1 else 0.0
     E = 10 ** (SQUEAL_EFFICIENCY_DB / 10) * lost
     sq = SQUEAL[tyre_type]
@@ -453,7 +487,8 @@ def squeal_shot(tyre_type, speed_ms, damping, spring, sink_ms, static_load_n, tr
         to_p2 = np.full(len(BANDS), RHO_C / (2 * np.pi * distance_m ** 2))
     band = E * (1 - sq["tone_share"]) * sh * to_p2
     tone = E * sq["tone_share"] * float(np.interp(np.log(sq["tone_hz"]), np.log(BANDS), to_p2))
-    env = np.interp(np.arange(int(round(tt[-1] * fs)) + 1) / fs, tt, P) if len(tt) > 1 else np.ones(1)
+    load = P / np.maximum(mu * slip, 1e-12)          # the squeal's power follows the load, not the friction's power
+    env = np.interp(np.arange(int(round(tt[-1] * fs)) + 1) / fs, tt, load) if len(tt) > 1 else np.ones(1)
     env = env / max(np.mean(env), 1e-30)
     return _burst(band, tone, sq["tone_hz"], sq["glide_per_s"], env, fs, seed, wander=sq["wander"]), E, \
         float(tt[-1]) if len(tt) else 0.0
@@ -486,7 +521,8 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
                         exterior_m=30.0, mu=0.5, fs=48000.0, seed=1, progress=print):
     """One-shots of each wheel's touchdown on a grid: squeals by slip speed and sink rate, in the cockpit (through the
     airframe's transfer, STRUCTURES) and exterior_m to the side; thumps by sink rate, in the cockpit only. groups: {name,
-    tyre_type, damping (N s/m), spring (N/m), static_load_n, wheels: [{gear, position}]}.
+    tyre_type, damping (N s/m), spring (N/m), static_load_n, mass_kg (the airframe's mass at each wheel, strut_mass;
+    optional), wheels: [{gear, position}]}.
 
     The files cross-fade (flightgear_touchdown_xml). Each wheel's are drawn from one seed of its own, so on its grid they
     are one waveform under different envelopes and levels, starting together: a blend of neighbours is one event, and
@@ -509,7 +545,8 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
                     for view in ("cockpit", "side"):
                         x, E, dur = squeal_shot(g["tyre_type"], v * 0.514444, g["damping"], g["spring"], s * 0.3048,
                                                 g["static_load_n"], T_db if view == "cockpit" else None,
-                                                None if view == "cockpit" else exterior_m, mu, fs, take)
+                                                None if view == "cockpit" else exterior_m, mu, fs, take,
+                                                g.get("mass_kg"))
                         shots.append(dict(x=x, file=f"touchdown_{tag}_squeal_{v:g}kt_{s:g}fps_{view}.wav", group=g["name"],
                                           gear=w["gear"], kind="squeal", view=view, slip_kt=v, sink_fps=s,
                                           slide_s=round(dur, 4), sound_j=E))
@@ -533,6 +570,22 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
         # a squeal plays loudest at its own node (the tent falls faster than the law rises): written there at full
         # volume. A thump is written at its own level, the cross-fade interpolating between them
         sh["boost"] = float(10 ** (sh["correction_db"] / 20)) if sh["kind"] == "squeal" else 1.0
+    # how alike neighbours' waveforms are, cell by cell along each axis (a firm touchdown's squeal is front-loaded, a
+    # gentle one's held): blended by amplitude, two whose correlation is rho lose 1 - 2u(1 - u)(1 - rho) of the energy
+    # at weights u and 1 - u, which the cross-fade puts back (flightgear_touchdown_xml)
+    def rho(a, b):
+        n = max(len(a), len(b))
+        a, b = np.pad(a, (0, n - len(a))), np.pad(b, (0, n - len(b)))
+        return float(np.dot(a, b) / np.sqrt(np.dot(a, a) * np.dot(b, b)))
+    coherence = {}
+    for sh in shots:
+        if sh["kind"] != "squeal" or (sh["gear"], sh["view"]) in coherence:
+            continue
+        x = {(o["slip_kt"], o["sink_fps"]): o["x"] for o in shots
+             if o["kind"] == "squeal" and o["gear"] == sh["gear"] and o["view"] == sh["view"]}
+        coherence[(sh["gear"], sh["view"])] = dict(
+            sink=[round(float(np.mean([rho(x[v, a], x[v, b]) for v in slips])), 4) for a, b in zip(sinks, sinks[1:])],
+            slip=[round(float(np.mean([rho(x[a, s], x[b, s]) for s in sinks])), 4) for a, b in zip(slips, slips[1:])])
     files = []
     for sh in shots:
         G = 10 ** (gain_db["cockpit" if sh["view"] == "cockpit" else "exterior"] / 20.0)
@@ -564,12 +617,14 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
                     groups=[{k: (v if k != "wheels" else [dict(gear=w["gear"], position=list(map(float, w["position"])))
                                                              for w in v]) for k, v in g.items()} for g in groups],
                     properties=TOUCHDOWN_PROPERTIES, files=files,
+                    coherence={f"{g}_{v}": c for (g, v), c in sorted(coherence.items())},
                     note="squeal: the wheel's spin-up loss by physics, its sound share and spectrum from recorded landings; "
                          "thump: one recorded touchdown, at the edge of detection, written at its estimate; where it would "
                          "pass full scale through a soft knee, driven in at thump_drive of its growth past thump_knee_db "
                          "over (held_db, limited_db, distortion: the clipper's share of its energy). Each wheel's files "
                          "are one waveform under "
-                         "different envelopes, cross-faded by amplitude. exposure_dba: each file's own, at its node; "
+                         "different envelopes, cross-faded by amplitude, the energy neighbours' differences cost put "
+                         "back (coherence: their correlation, cell by cell). exposure_dba: each file's own, at its node; "
                          "law_dba: what it plays at there (exposure = K + 20 log10 of the slip or sink)")
     (out / "touchdown.json").write_text(json.dumps(manifest, indent=1))
     (out / "pywopwop-touchdown.xml").write_text(flightgear_touchdown_xml(manifest))
@@ -590,12 +645,29 @@ def _tent(prop, nodes, i, lo, hi, floor=None):
     return w, within
 
 
+def _restore(coherence, slip, slips, sink, sinks):
+    """the factor that keeps a blend's energy: 1 / sqrt of what neighbours with correlation rho keep at tent weights u
+    and 1 - u, 1 - 2u(1 - u)(1 - rho), along each axis (u(1 - u) is nothing outside its cell, so one sum covers an
+    axis); none without the bank's coherence"""
+    if not coherence:
+        return []
+    from .wind import _e, _v, _ramp_e
+    axes = []
+    for prop, nodes, r in ((sink, sinks, coherence["sink"]), (slip, slips, coherence["slip"])):
+        terms = [_e("product", _v(-2.0 * (1.0 - c)), _ramp_e(prop, a, b), _ramp_e(prop, b, a))
+                 for a, b, c in zip(nodes, nodes[1:], r) if c < 0.9999]
+        if terms:
+            axes.append(_e("sum", _v(1.0), *terms))
+    return [_e("div", _v(1.0), _e("sqrt", _e("product", *axes) if len(axes) > 1 else axes[0]))] if axes else []
+
+
 def flightgear_touchdown_xml(manifest, sound_dir="Sounds/pywopwop", exterior="side"):
     """FlightGear <fx> entries, played once, cross-faded: each wheel's squeals at the grid's nodes around the slip and sink
     rate it touched down at, weighted by tents on both axes (weights summing to one) and blended by amplitude, which is
     right because each wheel's files are one waveform under different envelopes; and its strut's thumps the same way on
     the sink rate. Each node's amplitude also follows the law, in proportion to the slip for a squeal and to the sink rate
-    for a thump, its file's own difference from the law taken out. Each condition holds from the moment the wheel's
+    for a thump, its file's own difference from the law taken out; and a squeal's the energy its neighbours' differing
+    envelopes cost a blend, as their correlation says (_restore). Each condition holds from the moment the wheel's
     weight comes on until it lifts off, inside the node's support, so the blend plays once a touchdown: up to four squeals
     and two thumps a wheel, for a few tenths of a second. The latched values (TOUCHDOWN_PROPERTIES) are the flight
     model's to provide. Below the first node and above the last the nearest plays alone, the volume held to 1."""
@@ -612,13 +684,15 @@ def flightgear_touchdown_xml(manifest, sound_dir="Sounds/pywopwop", exterior="si
             slip = f"<property>{P['slip'].format(n=n)}</property>"
             entries = []
             for view in ("cockpit", exterior):
+                restore = _restore(manifest.get("coherence", {}).get(f"{n}_{view}"), slip, slips, sink, sinks)
                 for i, v in enumerate(slips):
                     wv, inv = _tent(slip, slips, i, 10.0, 1000.0)
                     for j, s in enumerate(sinks):
                         f = have.get(f"touchdown_{tag}_squeal_{v:g}kt_{s:g}fps_{view}.wav")
                         if f:
                             ws, ins = _tent(sink, sinks, j, 0.05, 100.0)
-                            vol = _e("product", *wv, *ws, slip, _v(10 ** (f["correction_db"] / 20) / (v * f["boost"])))
+                            vol = _e("product", *wv, *ws, slip, _v(10 ** (f["correction_db"] / 20) / (v * f["boost"])),
+                                     *restore)
                             entries.append((f["file"], view, inv + ins, vol))
                 for j, s in enumerate(sinks):
                     f = have.get(f"touchdown_{tag}_thump_{s:g}fps_{view}.wav")

@@ -101,9 +101,47 @@ def test_spin_up_loses_half_the_work():
         assert slip[-1] < 0.01 * V
         durations.append(t[-1])
     assert durations[0] > durations[1] > durations[2]
-    # the recorded P2006T touchdown: 58 kt, its slide 0.101 s, at 0.78 fps on these struts
-    t, _, _ = T.spin_up(58 * 0.514444, "6.00-6", MAIN["damping"], MAIN["spring"], 0.78 * 0.3048, MAIN["static_load_n"])
+    # the recorded P2006T touchdown: 58 kt, its slide 0.101 s, at 1.28 fps on these struts
+    t, _, _ = T.spin_up(58 * 0.514444, "6.00-6", MAIN["damping"], MAIN["spring"], 1.28 * 0.3048, MAIN["static_load_n"],
+                        mass_kg=X57_MAIN_KG)
     assert t[-1] == pytest.approx(0.101, abs=0.005)
+
+
+# the X-57's airframe at each main wheel (x57-mod3.xml: 3000 lb, Iyy 1804.3 slug ft^2, the mains 16.9 in behind the
+# centre of gravity), the two touching together
+X57_MAIN_KG = T.strut_mass(3000 * 0.45359237, 1804.3 * 1.3558179, 16.899 * 0.0254) / 2
+
+
+def test_strut_mass():
+    m, iyy = 1360.8, 2446.3
+    assert T.strut_mass(m, iyy, 0.0) == pytest.approx(m)
+    assert X57_MAIN_KG == pytest.approx(617.1, abs=0.5)        # more than the static share, 578 kg
+    # a nose wheel coming down with the mains on the runway: the airframe pitching about them
+    assert T.strut_mass(m, iyy, 2.471, 2.900) == pytest.approx((iyy + m * 0.429 ** 2) / 2.9 ** 2, rel=1e-3)
+
+
+def test_strut_slows_the_sink_as_jsbsim():
+    """the X-57's mains in JSBSim 1.3.3 (its flight model trimmed at 75 kt, the controls held, the X-57's own rim model):
+    slides of 65 and 39 ms at 2.58 and 3.99 fps, where the strut's damping does the work; and a landing flown in
+    FlightGear at about 85 kt, 175 and 75 ms at 1 and 2.6 fps, where the wing's shedding of the weight matters"""
+    slide = lambda kt, fps: T.spin_up(kt * 0.514444, "6.00-6", MAIN["damping"], MAIN["spring"], fps * 0.3048,
+                                      MAIN["static_load_n"], mass_kg=X57_MAIN_KG)[0][-1]
+    assert slide(74.9, 2.58) == pytest.approx(0.065, rel=0.1)
+    assert slide(75.0, 3.99) == pytest.approx(0.039, rel=0.15)
+    assert slide(85.0, 1.0) == pytest.approx(0.175, rel=0.05)
+    assert slide(85.0, 2.6) == pytest.approx(0.075, rel=0.05)
+
+
+def test_squeal_holds_to_the_end():
+    """a squeal follows the wheel's load, so it holds its level to the end of the slide as the recorded one does"""
+    fs = 48000.0
+    x, E, dur = T.squeal_shot("6.00-6", 58 * 0.514444, MAIN["damping"], MAIN["spring"], 1.28 * 0.3048,
+                              MAIN["static_load_n"], distance_m=30.0, fs=fs, mass_kg=X57_MAIN_KG)
+    n0, n = int(0.01 * fs), int(dur * fs)
+    p = x[n0:n0 + n] ** 2
+    fifth = n // 5
+    assert p[3 * fifth:4 * fifth].mean() > 0.5 * p.mean()
+    assert p[:n // 2].sum() / p.sum() == pytest.approx(0.53, abs=0.08)      # the recording's first half: 0.53
 
 
 def test_squeal_energy():
@@ -136,6 +174,10 @@ def _eval(e, P):
         return float(np.prod([_eval(c, P) for c in k]))
     if t == "sum":
         return sum(_eval(c, P) for c in k)
+    if t == "div":
+        return _eval(k[0], P) / _eval(k[1], P)
+    if t == "sqrt":
+        return float(np.sqrt(_eval(k[0], P)))
     if t == "clip":
         x = _eval([c for c in k if c.tag not in ("clipMin", "clipMax")][0], P)
         return min(max(x, float(e.find("clipMin").text)), float(e.find("clipMax").text))
@@ -161,8 +203,9 @@ def _comparisons_simgear_takes(root):
 
 
 def test_touchdown_bank(tmp_path):
-    """each wheel's files are one waveform under different envelopes; cross-faded by amplitude they keep the law's level
-    anywhere on the grid; two wheels touching together are two tyres"""
+    """each wheel's files are one waveform under different envelopes; cross-faded by amplitude, the energy their
+    differing envelopes cost put back, they keep the law's level anywhere on the grid; two wheels touching together are
+    two tyres"""
     import scipy.io.wavfile as wavfile
     from pywopwop.propeller import load_prop_aircraft
     from pywopwop.synth import a_weighted_ms
@@ -170,8 +213,8 @@ def test_touchdown_bank(tmp_path):
                                                             dict(gear=2, position=(-0.44, -1.0, -1.17))], **MAIN)]
     gain = dict(cockpit=-30.0, exterior=-20.0)
     m = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path, groups, gain, "p2006t",
-                              slips=(45.0, 75.0), sinks=(0.5, 2.0), progress=lambda s: None)
-    assert len(m["files"]) == 2 * (2 * 2 * 2 + 2)
+                              slips=(45.0, 75.0), sinks=(0.5, 1.0, 2.0), progress=lambda s: None)
+    assert len(m["files"]) == 2 * (2 * 3 * 2 + 3)
     files = {f["file"]: f for f in m["files"]}
     for kind, axis in (("squeal", "slip_kt"), ("thump", "sink_fps")):
         same = [f for f in m["files"] if f["kind"] == kind and f["view"] == "cockpit" and f["gear"] == 1]
@@ -197,9 +240,10 @@ def test_touchdown_bank(tmp_path):
         return x
     K = np.mean([f["law_dba"] - 20 * np.log10(f["slip_kt"]) for f in files.values()
                  if f["kind"] == "squeal" and f["view"] == "cockpit" and f["gear"] == 1])
-    for slip, sink in ((45.0, 0.5), (58.0, 1.0), (75.0, 2.0), (52.0, 1.6)):
+    # nodes, and cells' middles: a sink rate's neighbours, half and twice it, have the most different envelopes
+    for slip, sink in ((45.0, 0.5), (58.0, 1.0), (75.0, 2.0), (52.0, 1.5), (60.0, 0.75)):
         x = heard(slip, sink, 1)
-        assert 10 * np.log10(a_weighted_ms(x, 48000.0) / 4e-10) == pytest.approx(K + 20 * np.log10(slip), abs=1.0)
+        assert 10 * np.log10(a_weighted_ms(x, 48000.0) / 4e-10) == pytest.approx(K + 20 * np.log10(slip), abs=0.3)
     l, r = heard(58.0, 1.0, 1), heard(58.0, 1.0, 2)
     assert abs(np.corrcoef(l, r)[0, 1]) < 0.3
     # thumps at their estimate where they fit, through the knee past full scale, a firmer one still louder

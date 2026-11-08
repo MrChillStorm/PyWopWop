@@ -34,6 +34,11 @@ BAND = (fc >= 150) & (fc <= 1700)                # the roll
 SEL = (fc >= 120) & (fc <= 2100)                 # the transfers' bands
 MAIN_5 = dict(width_m=0.1257, diameter_m=0.3607)    # 5.00-5 (the ASK 21's main, the P2006T's nose)
 MAIN_6 = dict(width_m=0.16, diameter_m=0.4445)      # 6.00-6 (the P2006T's mains)
+# the X-57's airframe as its struts feel it (x57-mod3.xml: 3000 lb, Iyy 1804.3 slug ft^2, the centre of gravity at
+# 155.101 in, the mains at 172.0 and the nose at 57.83): the two mains together, the nose pivoting about them
+_M, _IYY = 3000.0 * 0.45359237, 1804.3 * 1.3558179
+X57_MASS = dict(main=T.strut_mass(_M, _IYY, (172.0 - 155.101) * 0.0254) / 2,
+                nose=T.strut_mass(_M, _IYY, (155.101 - 57.83) * 0.0254, (172.0 - 57.83) * 0.0254))
 
 
 def dba(p2, sel=BAND):
@@ -208,9 +213,25 @@ def touchdown():
     before = thirds(m, fs, 384.5, 388.3)
     k = np.sum(wind(65)[REF]) / np.sum(before[REF])
     squeal("p2006t", m, fs, 388.512, 388.613, thirds(m, fs, 384.5, 388.3, 2048), k, "p2006t", "6.00-6", 2, 58)
-    # the sink rate that makes a main wheel's slide last as long, on the X-57's strut (the same airframe)
-    durs = {fps: T.spin_up(58 * KT, "6.00-6", 8071.0, 76296.0, fps * 0.3048, 5671.0)[0][-1] for fps in np.arange(0.2, 3.01, 0.02)}
-    out["p2006t"]["sink_fps"] = float(min(durs, key=lambda x: abs(durs[x] - 0.101)))
+    # the sink rate that makes a main wheel's slide last as long, on the X-57's strut (the same airframe); and how much
+    # that depends on how fast the wing sheds the weight
+    def sink(settle_s):
+        durs = {fps: T.spin_up(58 * KT, "6.00-6", 8071.0, 76296.0, fps * 0.3048, 5671.0, settle_s=settle_s,
+                               mass_kg=X57_MASS["main"])[0][-1] for fps in np.arange(0.2, 4.01, 0.02)}
+        return round(float(min(durs, key=lambda x: abs(durs[x] - 0.101))), 2)
+    out["p2006t"]["sink_fps"] = sink(T.SETTLE_S)
+    out["p2006t"]["sink_fps_settling"] = {f"{s:g}": sink(s) for s in (0.1, 1.0, 3.0)}
+    # the squeal's envelope, the line's band by 10 ms over the approach's, against the model's load and its power
+    sos = butter(4, [900, 1500], "bandpass", fs=fs, output="sos")
+    y = sosfiltfilt(sos, m[int(384.0 * fs):int(389.0 * fs)]) ** 2
+    bg = y[int(0.5 * fs):int(4.3 * fs)].mean()
+    rec = np.array([y[int((t - 384.0) * fs):int((t + 0.01 - 384.0) * fs)].mean() - bg for t in 388.51 + 0.01 * np.arange(10)])
+    tt, slip, P = T.spin_up(58 * KT, "6.00-6", 8071.0, 76296.0, out["p2006t"]["sink_fps"] * 0.3048, 5671.0,
+                            mass_kg=X57_MASS["main"])
+    bins = lambda e: np.array([e[(tt >= a) & (tt < a + 0.01)].mean() for a in 0.01 * np.arange(10)])
+    rms = lambda e: float(np.sqrt(np.mean((10 * np.log10(bins(e) / bins(e).mean() / (rec / rec.mean()))) ** 2)))
+    out["p2006t"]["envelope"] = dict(recorded=(rec / rec.mean()).round(2).tolist(), load_rms_db=rms(P / slip),
+                                     power_rms_db=rms(P))
     # the mains' thump: what the 0.15 s from their touchdown hold over the approach's 0.15 s windows, band by band (the
     # sink rate known from the slide); and the later event, 1.8 s on, against the same
     lo = (fc >= 45) & (fc <= 700)
@@ -247,10 +268,11 @@ def touchdown():
     struts = dict(main=("6.00-6", 8071.0, 76296.0, 5671.0), nose=("5.00-5", 2846.0, 26926.0, 2002.0))
     x57 = {}
     for name, (ty, c, k, N) in struts.items():
-        slides = [T.spin_up(60 * KT, ty, c, k, fps * 0.3048, N)[0][-1] for fps in (0.25, 4.0)]
-        ck, E, _ = T.squeal_shot(ty, 60 * KT, c, k, 0.3048, N, transfer_db=Tx)
-        sd, _, _ = T.squeal_shot(ty, 60 * KT, c, k, 0.3048, N, distance_m=30.0)
-        x57[name] = dict(slide_s=slides, sound_mj=E * 1e3, cockpit_dba=sel_a(ck), side_dba=sel_a(sd),
+        m = X57_MASS[name]
+        slides = [T.spin_up(60 * KT, ty, c, k, fps * 0.3048, N, mass_kg=m)[0][-1] for fps in (0.25, 4.0)]
+        ck, E, _ = T.squeal_shot(ty, 60 * KT, c, k, 0.3048, N, transfer_db=Tx, mass_kg=m)
+        sd, _, _ = T.squeal_shot(ty, 60 * KT, c, k, 0.3048, N, distance_m=30.0, mass_kg=m)
+        x57[name] = dict(mass_kg=m, slide_s=slides, sound_mj=E * 1e3, cockpit_dba=sel_a(ck), side_dba=sel_a(sd),
                          thump_1fps_dba=sel_a(T.thump_shot(c, 0.3048)), thump_1fps_db=sel(T.thump_shot(c, 0.3048)))
     out["x57"] = x57
     return out
