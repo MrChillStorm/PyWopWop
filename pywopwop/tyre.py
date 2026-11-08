@@ -82,6 +82,12 @@ STRUCTURES = {
     "p2006t": dict(hz=[126.0, 158.0, 200.0, 251.0, 316.0, 398.0, 501.0, 631.0, 794.0, 1000.0, 1259.0, 1585.0, 1995.0],
                    db=[27.5, 16.7, 14.4, 2.5, -1.0, -2.7, -9.2, -11.8, -16.7, -21.6, -23.0, -26.0, -28.9]),
 }
+# The airframes' masses at their recorded landings (estimated: the P2006T near its 1230 kg maximum, the ASK 21 with two
+# aboard). An airframe with no recording of its own is taken to answer a force at its gear as its mass says, its
+# structure's velocities as the force over the mass: its transfer under the recorded one's by 20 log10 of the masses'
+# ratio (structure_db's airframe_kg), and a thump's level as the force over the mass, squared. An estimate: a heavier
+# airframe's stiffer structure and larger cabin, and where its gear meets it, aren't modelled.
+STRUCTURE_KG = {"ask21": 520.0, "p2006t": 1180.0}
 
 
 def a_weight(f):
@@ -140,30 +146,34 @@ def tyre_power(width_m, diameter_m, speed_ms, surface="asphalt"):
 
 def tyre_noise(tyres, speed_ms, listener, surface="asphalt"):
     """mean-square pressure per third-octave band (Pa^2) at the listener (m, the aircraft's frame) from the tyres
-    ({position (the contact, m), width_m, diameter_m}), each over a hard ground (a hemisphere)"""
+    ({position (the contact, m), width_m, diameter_m, count (tyres side by side there; 1)}), each over a hard ground (a
+    hemisphere)"""
     out = np.zeros(len(BANDS))
     for t in tyres:
         r = max(float(np.linalg.norm(np.asarray(listener, float) - np.asarray(t["position"], float))), 0.3)
-        out = out + tyre_power(t["width_m"], t["diameter_m"], speed_ms, surface) * RHO_C / (2.0 * np.pi * r ** 2)
+        out = out + t.get("count", 1) * tyre_power(t["width_m"], t["diameter_m"], speed_ms, surface) * RHO_C \
+            / (2.0 * np.pi * r ** 2)
     return out
 
 
-def structure_db(f, airframe="p2006t"):
-    """the airframe's transfer (STRUCTURES) at the frequencies, falling 12 dB an octave outside its bands"""
+def structure_db(f, airframe="p2006t", airframe_kg=None):
+    """the airframe's transfer (STRUCTURES) at the frequencies, falling 12 dB an octave outside its bands; for another
+    airframe of airframe_kg, scaled by the masses (STRUCTURE_KG)"""
     hz, db = np.log2(STRUCTURES[airframe]["hz"]), np.asarray(STRUCTURES[airframe]["db"])
     o = np.log2(np.asarray(f, float))
-    return np.interp(o, hz, db) - 12.0 * (np.maximum(hz[0] - o, 0.0) + np.maximum(o - hz[-1], 0.0))
+    scale = 20.0 * np.log10(airframe_kg / STRUCTURE_KG[airframe]) if airframe_kg else 0.0
+    return np.interp(o, hz, db) - 12.0 * (np.maximum(hz[0] - o, 0.0) + np.maximum(o - hz[-1], 0.0)) - scale
 
 
-def cockpit_noise(tyres, speed_ms, head, walls=None, surface="asphalt", airframe="p2006t"):
+def cockpit_noise(tyres, speed_ms, head, walls=None, surface="asphalt", airframe="p2006t", airframe_kg=None):
     """mean-square pressure per third-octave band (Pa^2) at the pilot's head: (airborne, through the structure). walls: the
     power the cabin's walls let in by frequency (model.Cabin.inside); the structure's part is the airframe's transfer
-    (STRUCTURES) for every wheel"""
+    (STRUCTURES; scaled to airframe_kg, if given) for every wheel"""
     air = tyre_noise(tyres, speed_ms, head, surface)
     if walls is not None:
         air = air * walls(BANDS)
-    structure = sum(tyre_power(t["width_m"], t["diameter_m"], speed_ms, surface) for t in tyres) / 1e-12 * 4e-10 \
-        * 10.0 ** (structure_db(BANDS, airframe) / 10.0)
+    structure = sum(t.get("count", 1) * tyre_power(t["width_m"], t["diameter_m"], speed_ms, surface) for t in tyres) \
+        / 1e-12 * 4e-10 * 10.0 ** (structure_db(BANDS, airframe, airframe_kg) / 10.0)
     return air, structure
 
 
@@ -209,13 +219,14 @@ def low_speed_power(width_m, diameter_m, v_low_ms, surface="asphalt"):
 
 
 def make_tyre_bank(aircraft, out_dir, tyres, gain_db, airframe, speeds=SPEEDS_KT, exterior_m=30.0, surface="asphalt",
-                   fs=48000.0, duration=15.0, seed=1, progress=print):
+                   fs=48000.0, duration=15.0, seed=1, progress=print, airframe_kg=None):
     """Sea level loops of each tyre rolling at the ground speeds: outside exterior_m to the side, and in the cockpit (its
     airborne part and its part through the structure in one loop; the manifest has each). tyres: {name, gear (FlightGear's
     gear index), position (the contact, m, the aircraft's frame), width_m, diameter_m, static_compression_ft (the flight
-    model's at rest, for the load)}. gain_db: a bank's {cockpit, exterior}, so that their loudness against its loops is the
-    physics'. airframe: whose structure's transfer the cockpit takes (STRUCTURES). Writes manifest.json and
-    pywopwop-tyres.xml."""
+    model's at rest, for the load), count (tyres side by side on that gear, one loop; 1)}. gain_db: a bank's {cockpit,
+    exterior}, so that their loudness against its loops is the physics'. airframe: whose structure's transfer the
+    cockpit takes (STRUCTURES); airframe_kg: this aircraft's mass, if its airframe isn't that one (STRUCTURE_KG). Writes
+    manifest.json and pywopwop-tyres.xml."""
     import zlib
     from .model import Observer, STANDARD_OBSERVERS
     from .synth import a_weighted_ms, write_wav
@@ -230,7 +241,7 @@ def make_tyre_bank(aircraft, out_dir, tyres, gain_db, airframe, speeds=SPEEDS_KT
     for t in tyres:
         for i, v in enumerate(speeds):
             V = v * 0.514444
-            air, structure = cockpit_noise([t], V, aircraft.cockpit, walls, surface, airframe)
+            air, structure = cockpit_noise([t], V, aircraft.cockpit, walls, surface, airframe, airframe_kg)
             for view, p2, g, parts in (("side", tyre_noise([t], V, side, surface), gain_db["exterior"], {}),
                                        ("cockpit", air + structure, gain_db["cockpit"],
                                         dict(airborne_dba=dba_of(air), structure_dba=dba_of(structure)))):
@@ -249,12 +260,14 @@ def make_tyre_bank(aircraft, out_dir, tyres, gain_db, airframe, speeds=SPEEDS_KT
                          + (f"  (airborne {parts['airborne_dba']:.1f}, structure {parts['structure_dba']:.1f})" if parts else ""))
     power = {t["name"]: round(low_speed_power(t["width_m"], t["diameter_m"], speeds[0] * 0.514444, surface), 2) for t in tyres}
     manifest = dict(aircraft=aircraft.name, generator="pywopwop tyre", sample_rate=fs, exterior_distance_m=exterior_m,
-                    gain_db=gain_db, surface=surface, structure=airframe, speeds_kt=list(speeds), low_speed_power=power,
+                    gain_db=gain_db, surface=surface, structure=airframe, airframe_kg=airframe_kg, speeds_kt=list(speeds),
+                    low_speed_power=power,
                     tyres=[{k: (list(map(float, v)) if k == "position" else v) for k, v in t.items()} for t in tyres],
                     properties=PROPERTIES, files=files, max_sources=2 * len(tyres),
                     note="positions: m from the moment reference, the aircraft's frame (x forward, y left, z up); outside: the tyre's airborne sound, scaled from a measured truck tyre (Hoever 2014) and checked "
                          "against one aircraft measurement; cockpit: mostly what the wheels put in through the structure, "
-                         f"from one recorded landing in the {airframe} airframe's cabin; asphalt only")
+                         f"from one recorded landing in the {airframe} airframe's cabin"
+                         + (f", scaled to {airframe_kg:g} kg (estimated)" if airframe_kg else "") + "; asphalt only")
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (out / "pywopwop-tyres.xml").write_text(flightgear_tyre_xml(manifest))
     return manifest
@@ -344,6 +357,14 @@ TYRE_TYPES = {
                    tyre_stiffness=164e3),
     "5.00-5": dict(diameter_m=0.3607, width_m=0.1257, rolling_radius_m=0.168, tyre_kg=3.65, wheel_kg=2.5, unsprung_kg=8.0,
                    tyre_stiffness=153e3),
+    # the MV-22B's (twins on every leg): 8.50-10 12-ply mains, rated 8000 lb; 18x5.7-8 14-ply noses, rated about 6700 lb
+    # (the databook's 18-ply's 8600 by the plies). The tyres' weights are the nearest found, a 10-ply 8.50-10's 27.7 lb
+    # and an 18-ply 18x5.7-8's 16.0; the wheels and brakes', estimated; the unsprung mass a tyre's share of its leg's
+    # wheels, brakes, axle and piston, estimated
+    "8.50-10": dict(diameter_m=0.6515, width_m=0.221, rolling_radius_m=0.3035, tyre_kg=12.56, wheel_kg=9.0,
+                    unsprung_kg=55.0, tyre_stiffness=537e3),
+    "18x5.7-8": dict(diameter_m=0.4547, width_m=0.1448, rolling_radius_m=0.2155, tyre_kg=7.26, wheel_kg=5.0,
+                     unsprung_kg=27.0, tyre_stiffness=710e3),
 }
 
 # What a squeal is, recorded (tools/tyre_recordings.py): its own spectrum by third octave (dB, 500 Hz to 8 kHz: the
@@ -362,6 +383,19 @@ SQUEAL = {
                    db=[-16.3, -21.2, -21.8, -28.7, -13.7, -3.1, -4.3, -15.8, -17.7, -33.1, -19.8, -23.9, -27.6],
                    tone_hz=1730.0, glide_per_s=-0.29, wander=0.01, tone_share=0.6, source="ASK 21"),
 }
+
+
+def _scaled_squeal(src, diameter_m):
+    """a squeal recorded on one tyre, moved to a tyre of another diameter as the rolling noise's features move, in
+    frequency as one over the square root of the diameter"""
+    k = np.sqrt(TYRE_TYPES[src]["diameter_m"] / diameter_m)
+    return dict(SQUEAL[src], hz=[h * k for h in SQUEAL[src]["hz"]], tone_hz=SQUEAL[src]["tone_hz"] * k,
+                source=SQUEAL[src]["source"] + ", scaled")
+
+
+# no squeal recorded on the MV-22B's tyres: the P2006T's 6.00-6's, moved to their sizes
+for _t in ("8.50-10", "18x5.7-8"):
+    SQUEAL[_t] = _scaled_squeal("6.00-6", TYRE_TYPES[_t]["diameter_m"])
 # The squeal's sound energy against the energy the wheel loses spinning up (tools/tyre_recordings.py): the P2006T's
 # two mains at 58 kt, the sound power taken from the cockpit through its rolling transfer (STRUCTURES) in the bands it
 # was measured in, 500 Hz to 2 kHz, assuming a squeal's contact forces shake the structure as a rolling tyre's do. The
@@ -495,9 +529,11 @@ def squeal_shot(tyre_type, speed_ms, damping, spring, sink_ms, static_load_n, tr
         float(tt[-1]) if len(tt) else 0.0
 
 
-def thump_shot(damping, sink_ms, fs=48000.0, seed=1):
-    """a strut's thump in the cockpit (Pa): the measured touchdown's band energies scaled by the square of the force step"""
-    e = 10 ** (_shape(THUMP, BANDS) / 10) * 4e-10 * THUMP["window_s"] * (damping * sink_ms / THUMP["force_n"]) ** 2
+def thump_shot(damping, sink_ms, fs=48000.0, seed=1, airframe_kg=None):
+    """a strut's thump in the cockpit (Pa): the measured touchdown's band energies scaled by the square of the force step;
+    in another airframe of airframe_kg, of the force over the mass (STRUCTURE_KG)"""
+    scale = (STRUCTURE_KG["p2006t"] / airframe_kg) ** 2 if airframe_kg else 1.0
+    e = 10 ** (_shape(THUMP, BANDS) / 10) * 4e-10 * THUMP["window_s"] * (damping * sink_ms / THUMP["force_n"]) ** 2 * scale
     m = int(round(4 * THUMP["decay_s"] * fs))
     env = np.exp(-np.arange(m) / fs / THUMP["decay_s"])
     return _burst(e, 0.0, 100.0, 0.0, env / env.mean(), fs, seed, pre=0.005, post=0.02)
@@ -519,11 +555,13 @@ TOUCHDOWN_PROPERTIES = dict(sink="/fdm/jsbsim/gear/unit[{n}]/touchdown-sink-fps"
 
 
 def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUCHDOWN_SLIPS_KT, sinks=SINKS_FPS,
-                        exterior_m=30.0, mu=0.5, fs=48000.0, seed=1, progress=print):
+                        exterior_m=30.0, mu=0.5, fs=48000.0, seed=1, progress=print, airframe_kg=None):
     """One-shots of each wheel's touchdown on a grid: squeals by slip speed and sink rate, in the cockpit (through the
-    airframe's transfer, STRUCTURES) and exterior_m to the side; thumps by sink rate, in the cockpit only. groups: {name,
-    tyre_type, damping (N s/m), spring (N/m), static_load_n, mass_kg (the airframe's mass at each wheel, strut_mass;
-    optional), wheels: [{gear, position}]}.
+    airframe's transfer, STRUCTURES, scaled to airframe_kg if this isn't that airframe) and exterior_m to the side;
+    thumps by sink rate, in the cockpit only. groups: {name, tyre_type, damping (N s/m), spring (N/m), static_load_n,
+    mass_kg (the airframe's mass at the leg, strut_mass; optional), tyres (side by side on each leg, sharing its strut
+    and spun up together; 1), wheels: [{gear, position}]}: each of wheels a leg, its values the leg's. A leg's tyres are
+    one source, drawn from seeds of their own; its thump is its strut's.
 
     The files cross-fade (flightgear_touchdown_xml). Each wheel's are drawn from one seed of its own, so on its grid they
     are one waveform under different envelopes and levels, starting together: a blend of neighbours is one event, and
@@ -534,27 +572,33 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
     from .synth import a_weighted_ms, write_wav
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    T_db = structure_db(BANDS, airframe)
+    T_db = structure_db(BANDS, airframe, airframe_kg)
     a_exposure = lambda x: float(10 * np.log10(max(a_weighted_ms(x, fs) * len(x) / fs, 1e-30) / 4e-10))
     shots = []
     for g in groups:
         for w in g["wheels"]:
             take = seed + 104729 * (w["gear"] + 1)          # the wheel's own: its grid coherent, the wheels apart
             tag = f"{g['name']}_g{w['gear']}"
+            n = g.get("tyres", 1)
+            m_tyre = g["mass_kg"] / n if g.get("mass_kg") else None
             for v in slips:
                 for s in sinks:
                     for view in ("cockpit", "side"):
-                        x, E, dur = squeal_shot(g["tyre_type"], v * 0.514444, g["damping"], g["spring"], s * 0.3048,
-                                                g["static_load_n"], T_db if view == "cockpit" else None,
-                                                None if view == "cockpit" else exterior_m, mu, fs, take,
-                                                g.get("mass_kg"))
+                        x, E = 0.0, 0.0
+                        for k in range(n):           # each tyre its strut's share, the same slide, a seed of its own
+                            xk, Ek, dur = squeal_shot(g["tyre_type"], v * 0.514444, g["damping"] / n, g["spring"] / n,
+                                                      s * 0.3048, g["static_load_n"] / n,
+                                                      T_db if view == "cockpit" else None,
+                                                      None if view == "cockpit" else exterior_m, mu, fs, take + 7919 * k,
+                                                      m_tyre)
+                            x, E = x + xk, E + Ek
                         shots.append(dict(x=x, file=f"touchdown_{tag}_squeal_{v:g}kt_{s:g}fps_{view}.wav", group=g["name"],
                                           gear=w["gear"], kind="squeal", view=view, slip_kt=v, sink_fps=s,
                                           slide_s=round(dur, 4), sound_j=E))
                     if w is g["wheels"][0]:
                         progress(f"  {g['name']:5s} squeal {v:4.0f} kt {s:4g} fps  slide {dur * 1e3:5.0f} ms  {E * 1e3:6.1f} mJ")
             for s in sinks:
-                shots.append(dict(x=thump_shot(g["damping"], s * 0.3048, fs, take + 1),
+                shots.append(dict(x=thump_shot(g["damping"], s * 0.3048, fs, take + 1, airframe_kg),
                                   file=f"touchdown_{tag}_thump_{s:g}fps_cockpit.wav", group=g["name"], gear=w["gear"],
                                   kind="thump", view="cockpit", sink_fps=s))
     # the laws: exposure = K + 20 log10(axis), the axis the slip for a squeal and the sink rate for a thump
@@ -613,6 +657,7 @@ def make_touchdown_bank(aircraft, out_dir, groups, gain_db, airframe, slips=TOUC
         files.append({k: v for k, v in sh.items() if k != "x"} | dict(limited_samples=int(limited)) | extra)
     manifest = dict(aircraft=aircraft.name, generator="pywopwop touchdown", sample_rate=fs, exterior_distance_m=exterior_m,
                     gain_db=gain_db, thump_knee_db=THUMP_KNEE_DB, thump_drive=THUMP_DRIVE, structure=airframe,
+                    airframe_kg=airframe_kg,
                     slips_kt=list(slips),
                     sinks_fps=list(sinks), mu=mu,
                     groups=[{k: (v if k != "wheels" else [dict(gear=w["gear"], position=list(map(float, w["position"])))

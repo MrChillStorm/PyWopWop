@@ -252,3 +252,38 @@ def test_touchdown_bank(tmp_path):
     for f in th:
         assert f["limited_db"] < 0.05 if f["peak_over_db"] <= 0 else f["limited_db"] > 0
     assert all(b["played_dba"] > a["played_dba"] + 1.0 for a, b in zip(th, th[1:]))
+
+
+def test_twins_and_a_heavier_airframe():
+    """two tyres side by side sound as two (3 dB, the squeal from seeds of their own); an airframe without a recording
+    of its own answers a force at its gear as its mass says"""
+    t = dict(position=(0.0, 0.0, -2.0), width_m=0.221, diameter_m=0.6515)
+    one, two = T.tyre_noise([t], 40.0, (0.0, 10.0, -2.0)), T.tyre_noise([dict(t, count=2)], 40.0, (0.0, 10.0, -2.0))
+    assert 10 * np.log10(np.sum(two) / np.sum(one)) == pytest.approx(3.01, abs=0.01)
+    m = 4 * T.STRUCTURE_KG["p2006t"]
+    assert T.structure_db(BANDS, "p2006t", m) == pytest.approx(T.structure_db(BANDS, "p2006t") - 20 * np.log10(4), abs=1e-9)
+    a, b = T.thump_shot(8071.0, 0.3), T.thump_shot(8071.0, 0.3, airframe_kg=m)
+    assert 10 * np.log10(np.sum(b ** 2) / np.sum(a ** 2)) == pytest.approx(-20 * np.log10(4), abs=0.1)
+    # the MV-22B's tyres: the squeal moved down as the rolling noise's features move, by one over root diameter
+    assert T.SQUEAL["8.50-10"]["tone_hz"] == pytest.approx(1170.0 * np.sqrt(0.4445 / 0.6515))
+    assert T.wheel_inertia("8.50-10") == pytest.approx(0.970, abs=0.002)      # as the V-22's flight model has it
+
+
+def test_twin_leg_touchdown(tmp_path):
+    """a leg's two tyres share its strut and slide together: twice the energy of one, the two not one doubled"""
+    from pywopwop.propeller import load_prop_aircraft
+    leg = dict(name="main", tyre_type="6.00-6", wheels=[dict(gear=1, position=(0.0, 1.0, -1.2))], **MAIN)
+    kw = dict(slips=(45.0,), sinks=(1.0,), progress=lambda s: None)
+    gain = dict(cockpit=-30.0, exterior=-20.0)
+    one = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path / "a", [leg], gain, "p2006t", **kw)
+    leg2 = dict(leg, damping=2 * MAIN["damping"], spring=2 * MAIN["spring"], static_load_n=2 * MAIN["static_load_n"],
+                tyres=2)
+    two = T.make_touchdown_bank(load_prop_aircraft("x57"), tmp_path / "b", [leg2], gain, "p2006t", **kw)
+    f1 = {f["file"]: f for f in one["files"]}
+    for f in two["files"]:
+        if f["kind"] == "squeal":
+            assert f["sound_j"] == pytest.approx(2 * f1[f["file"]]["sound_j"], rel=1e-6)
+            assert f["slide_s"] == f1[f["file"]]["slide_s"]
+            assert f["exposure_dba"] - f1[f["file"]]["exposure_dba"] == pytest.approx(3.0, abs=0.5)
+        else:
+            assert f["exposure_dba"] - f1[f["file"]]["exposure_dba"] == pytest.approx(6.0, abs=0.1)   # twice the strut

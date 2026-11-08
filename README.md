@@ -294,6 +294,19 @@ through a soft knee 6 dB under full scale, as a limiter would, and past 6 dB ove
 growth: an X-57 main thump plays 0.5 dB under its estimate at 1 fps, 3.0 at 2 and 6.9 at 4, still louder each time, with
 the clipper's distortion at 1, 6 and 11 % of its energy.
 
+Legs with twin tyres, as the MV-22B's (8.50-10 mains and 18x5.7-8 noses, two on every leg), are one source each: a
+rolling tyre's `count`, a touchdown group's `tyres`. In a touchdown the tyres share the leg's strut and slide together,
+each from a seed of its own, so a leg's squeal carries twice one tyre's energy and its thump is the strut's. An airframe
+with no cockpit recording of its own takes a recorded one's transfer scaled to its mass (`airframe_kg`): its structure
+is taken to answer a force at the gear as the force over its mass, so the transfer falls by 20 log10 of the masses'
+ratio and a thump grows as the force over the mass, squared. That is an estimate; a heavier airframe's stiffer
+structure, its larger cabin and where its gear meets it aren't in it. For the MV-22B (21.5 t) the P2006T's transfer
+comes 25 dB down, and its squeal, which no recording gives, is the P2006T's 6.00-6's moved down in frequency for the
+larger tyres as the rolling noise's features move. At the MV-22B rotor bank's gains a main leg rolling at 200 kt comes
+to 85 dB(A) 30 m to the side and 78 in the cockpit, and its thump at 16 fps to 99 dB(A), at its estimate and under full
+scale. Its squeal blends stay within 0.7 dB of the law: its shortest slides, 6 to 25 ms at low slip and a firm sink,
+are clicks whose neighbours differ more than the cross-fade's average correlation along each axis says.
+
 ## Turbine engines
 
 `pywopwop engine` and `engine-bank` compute a turboshaft's sound from its thermodynamic state: starts, shutdowns
