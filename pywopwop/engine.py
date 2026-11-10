@@ -166,6 +166,10 @@ class Installation:
     cockpit_db: list = None                      # [[nacelle deg, dB], ...]: what the paths to the cockpit lose that the
                                                  # model doesn't resolve (measured), by the nacelle's angle
     inside_db: float = 0.0                       # that loss at this installation's angle
+    # [[spool %, [[Hz, dB], ...]], ...]: the engine's own broadband where a recording says what the model's sources miss, by
+    # the spool's speed and the frequency, for every listener (inside, it is heard through the walls like the rest);
+    # between rows by the speed, beyond them held, each row in log frequency with its end points held beyond it
+    bands_db: list = None
 
     def tilted(self, nacelle_deg):
         """the installation with the nacelle at nacelle_deg (90: as given), turned forward about the pivot, with its
@@ -512,6 +516,8 @@ def starter_noise(e, ng, atm=None):
     work = 0.8 * (1.0 - st["supply_pressure_ratio"] ** -k)
     out = _turbine(work, np.pi * st["tip_diameter"] * n_d, st["inlet_area"], st["rotor_blades"] * n, 90.0, atm,
                    directional=False)
+    if not st.get("tones", True):
+        out.tones = []          # (the preset leaves its tones out: their blade count and gearing have no source)
     m = st.get("cowl_surface_mass")
     if m:
         # it sits inside the engine's cowling: its turbine heard through the cowl (mass law), its exhaust ducted out
@@ -647,6 +653,29 @@ def _render_sources(srcs, observer, X, fs, duration, seed, environment, cabin, p
     return sig, lv
 
 
+def bands_gain_db(inst, ng):
+    """the installation's correction of the engine's own broadband at spool speed ng, for every listener, dB at BANDS"""
+    return _bands_gain_db(inst.bands_db, ng)
+
+
+def _bands_gain_db(table, ng):
+    if not table:
+        return np.zeros(len(BANDS))
+    rows = sorted(table, key=lambda r: r[0])
+
+    def row(r):
+        t = np.asarray(r[1], float)
+        return np.interp(np.log(BANDS), np.log(t[:, 0]), t[:, 1])
+    ps = [float(r[0]) for r in rows]
+    if ng <= ps[0] or len(rows) == 1:
+        return row(rows[0])
+    if ng >= ps[-1]:
+        return row(rows[-1])
+    i = max(j for j in range(len(ps)) if ps[j] <= ng)
+    w = (ng - ps[i]) / (ps[i + 1] - ps[i])
+    return (1.0 - w) * row(rows[i]) + w * row(rows[i + 1])
+
+
 def _listener(observer, hub_height):
     return np.asarray(observer.position if observer.position is not None
                       else _ground_listener(observer, hub_height), float)
@@ -664,6 +693,9 @@ def render_engine(inst, cond, observer, fs=48000.0, duration=15.0, seed=1, envir
     s = engine_state(e, cond.ng, cond.lit, cond.fuel_pph, atm=atm)
     X = _listener(observer, hub_height)
     srcs = layer_sources(inst, s, X, cond.starter, cond.np_pct, atm)
+    if inst.bands_db:
+        g = 10.0 ** (0.1 * bands_gain_db(inst, cond.ng))
+        srcs = {k: (pos, replace(src, bands=src.bands * g)) for k, (pos, src) in srcs.items()}
     sig, lv = _render_sources(srcs, observer, X, fs, duration, seed, environment, cabin, pitch_headroom, f_highpass,
                               atm)
     if observer.position is not None and inst.inside_db:

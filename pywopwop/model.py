@@ -143,6 +143,7 @@ class Rotor:
     torsion_damping: float = 0.1     # structural plus aerodynamic, fraction of critical
     blade_mass_per_length: float = None    # kg/m; default from the Lock number
     flat_pitch_deg: float = None     # blade pitch at 0.75 R with the collective fully down (ground runs)
+    signed_hover_inflow: bool = False  # annuli loaded downward in a hover get the mirrored momentum balance (aero._hover_inflow)
 
     def __post_init__(self):
         if isinstance(self.airfoil, dict):

@@ -34,6 +34,10 @@ class AeroOptions:
     n_radial: int = 40
     n_azimuth: int = 720            # per revolution (a multiple of the blade count is enforced)
     bvi: bool = True
+    # a ground run's trim at a fixed collective (operating._at_collective) turns this on: its rotors that set signed_hover_inflow give
+    # their annuli loaded downward the mirrored momentum balance (_hover_inflow). Nowhere else: in flight the option moved the
+    # MV-22B's hover and airplane-mode trims off their tests
+    signed_hover_inflow: bool = False
     elastic: bool = True            # use the rotor's elastic blade model when it has one
     wake_dpsi_deg: float = 2.0      # wake discretisation
     wake_revs_max: float = 4.0
@@ -467,9 +471,14 @@ class _BladeModel:
 
 
 def _hover_inflow(bm, theta0, lam_mean_ff):
-    """Induced inflow per annulus (BEMT with tip loss)."""
+    """Induced inflow per annulus (BEMT with tip loss). An annulus loaded downward (a twisted blade's tip at flat pitch,
+    its root still lifting) has no induced flow, unless the rotor has signed_hover_inflow and the trim is a ground run's
+    (AeroOptions.signed_hover_inflow): then the momentum balance mirrored, the annulus hovering upside down and driving
+    its air up through the disc, lambda = mu_z/2 - sqrt(mu_z^2/4 + q) (the hover's solution with the thrust and the
+    flow reversed)"""
     x = bm.x
     B = bm.B
+    signed = bool(getattr(bm.opts, "signed_hover_inflow", False) and getattr(bm.rotor, "signed_hover_inflow", False))
     lam = bm.lam_hover if bm.lam_hover is not None else np.full_like(x, max(lam_mean_ff, 0.01))
     for _ in range(80):
         ld = bm.loads(theta0, 0.0, 0.0, lam[None, :], single=True)
@@ -477,8 +486,9 @@ def _hover_inflow(bm, theta0, lam_mean_ff):
         phi = np.maximum(np.abs(lam - bm.mu_z) / x, 0.01)
         F = 2.0 / np.pi * np.arccos(np.exp(-B * (1.0 - x) / (2.0 * x * phi)))
         F = np.maximum(F, 0.05)
-        qn = B * np.maximum(fz, 0.0) / (4.0 * np.pi * bm.rho * x * bm.R * F * bm.vtip ** 2)
-        new = 0.5 * (bm.mu_z + np.sqrt(bm.mu_z ** 2 + 4.0 * qn)) * bm.k_ge
+        qn = B * (np.abs(fz) if signed else np.maximum(fz, 0.0)) / (4.0 * np.pi * bm.rho * x * bm.R * F * bm.vtip ** 2)
+        root = np.sqrt(bm.mu_z ** 2 + 4.0 * qn)
+        new = 0.5 * (bm.mu_z + (np.where(fz < 0.0, -root, root) if signed else root)) * bm.k_ge
         if np.max(np.abs(new - lam)) < 1e-7:
             lam = new
             break

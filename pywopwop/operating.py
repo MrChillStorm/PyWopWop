@@ -136,7 +136,8 @@ def _at_collective(rot, omega, theta75, rho, c, nu, opts, ground_height, w_ref):
     """A rotor in still air at the collective theta75 (rad, at 0.75 R): the thrust for it by the secant method on the
     trim's collective"""
     from dataclasses import replace
-    opts = replace(opts, bvi=False)
+    # (and a rotor that sets signed_hover_inflow gets it here, on the ground at flat pitch, and nowhere else)
+    opts = replace(opts, bvi=False, signed_hover_inflow=True)
     w_ref = w_ref * (omega / rot.omega) ** 2        # what the rotor can make at this speed
     ts = [0.05 * w_ref, 0.2 * w_ref]
     sols = [solve_rotor(rot, omega, 0.0, 0.0, t, rho, c, nu, opts, ground_height) for t in ts]

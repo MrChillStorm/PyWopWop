@@ -74,3 +74,7 @@ supply_pressure_ratio = 3.4
 supply_temperature_k = 480.0
 exhaust_area = 0.008
 cowl_surface_mass = 4.0          # kg/m^2: inside the nacelle
+# its tones left out, its broadband kept: the blade count and the gearing above are the T700's, no source gives this
+# engine's, and a recorded MV-22B start (refs/recordings/mv22b_start, outside, 2013) has no tone at the 74.4th spool order
+# they make (nor at its harmonics) over its floor, only the compressor's 32nd, 10 to 14 dB over it
+tones = false

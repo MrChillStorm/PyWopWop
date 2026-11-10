@@ -94,7 +94,9 @@ def test_tiltrotor_engines_turn_with_the_nacelles():
             assert abs(np.linalg.norm(np.subtract(p, pv)) - np.linalg.norm(np.subtract(q, pv))) < 1e-9
         assert a.inlet[0] > a.exhaust[0]                      # the inlet ahead in airplane mode
         assert h.n2_property.endswith("drive/nr-pct")
-        assert h.inside_db == 0.0 and a.inside_db < -10.0     # the measured loss to the cockpit in airplane mode
+        # the measured loss to the cockpit in airplane mode; with the nacelles up, the walls' loss 13.4 dB under the model's (fitted
+        # to a cockpit recorded on the ground at governed speed)
+        assert h.inside_db == 13.4 and a.inside_db < -10.0
     assert en.load_installations("uh60a", 0.0)[0].inlet == en.load_installations("uh60a")[0].inlet
     a = plane[0]
     cock, side = Observer("cockpit", position=(4.28, -0.57, -3.15)), Observer("side", 90.0, 0.0, 50.0)
@@ -147,3 +149,26 @@ def test_flightgear_engine_section(tmp_path):
         assert float(t.find("pitch").findtext("min")) == pytest.approx(en.NP_GATE_PCT * 0.01)
     assert not any(s.find("volume/expression/product/pow") is not None for s in sounds if "-turbine-" not in
                    s.find("name").text)
+
+
+def test_starter_tones_can_be_left_out():
+    """a preset's starter with tones = false keeps its broadband and has no tones (the AE 1107C's: no source for them)"""
+    e = en.load_engine("ae1107c")
+    assert e.starter.get("tones") is False
+    off = en.starter_noise(e, 10.0)
+    on = en.starter_noise(replace(e, starter=dict(e.starter, tones=True)), 10.0)
+    assert not off.tones and on.tones
+    assert np.allclose(off.bands, on.bands)
+
+
+def test_source_bands_reach_every_listener():
+    """an installation's bands_db corrects the engine's broadband for the outside and the cockpit alike, by the spool's
+    speed; the MV-22B's (fitted to its recorded start) is nil at ground idle"""
+    inst = en.load_installations("mv22b")[0]
+    assert inst.bands_db and np.allclose(en.bands_gain_db(inst, 76.0), 0.0) and np.abs(en.bands_gain_db(inst, 20.0)).max() > 3.0
+    bare = replace(inst, bands_db=None)
+    c = en.EngineCondition(20.0)
+    for o in (Observer("side", 90.0, 0.0, 50.0), Observer("cockpit", position=(4.0, 0.0, -1.0))):
+        a = en.render_engine(inst, c, o, duration=1.0, seed=3).levels()
+        b = en.render_engine(bare, c, o, duration=1.0, seed=3).levels()
+        assert abs(a["layer/core"]["oaspl"] - b["layer/core"]["oaspl"]) > 0.5
