@@ -121,5 +121,12 @@ def test_section_fits_the_sources(ac):
     assert "cruise[1]/rpm" in text and "cruise[1]/ct" in text and e.find("pitch") is not None
     h = ET.tostring(names["pww-60kt_3000rpm-hl_b_right-side"]).decode()
     assert "hl[7]/rpm" in h                                # a group's first disc speaks for it
+    # every loop at its own pitch, nothing added (SimGear's pitch offset is 1.0 unless stated), over its whole window: the
+    # lowest loop from a tenth of its speed, each up to its neighbour's (the high-lift loops' 4800 is 1.6 times 3000)
+    assert all(p.findtext("offset") == "0" for x in fx for p in x.findall("pitch"))
+    low = names["pww-60kt_1500rpm_ct0-cruise_left-side"].find("pitch")
+    assert float(low.findtext("min")) == pytest.approx(0.1) and float(low.findtext("max")) == pytest.approx(1.5)
+    top = names["pww-60kt_3000rpm-hl_b_right-side"].find("pitch")
+    assert float(top.findtext("max")) == pytest.approx(1.6)
     src = P.prop_sources(m)
     assert 10 < src["cockpit"] < 64 and 10 < src["exterior"] < 64

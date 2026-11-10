@@ -309,7 +309,8 @@ def flightgear_xml(aircraft, conds, manifest, opts, exterior="side", sound_dir="
         s += "\t\t\t<volume><expression><product>\n"
         s += "".join(f"\t\t\t\t{t}\n" for t in terms)
         s += "\t\t\t</product></expression></volume>\n"
-        s += (f"\t\t\t<pitch><property>{prop}</property><factor>{1.0 / ref:.6g}</factor>"
+        # (SimGear adds a <pitch>'s <offset> to factor x property, and reads 1.0 when none is given: an octave up, so it is stated)
+        s += (f"\t\t\t<pitch><property>{prop}</property><factor>{1.0 / ref:.6g}</factor><offset>0</offset>"
               f"<min>{min(0.2, lo / ref):.3g}</min><max>{opts.pitch_headroom:g}</max></pitch>\n")
         if not view.startswith("cockpit"):
             # the distance the loop was recorded at: FlightGear scales it from there
