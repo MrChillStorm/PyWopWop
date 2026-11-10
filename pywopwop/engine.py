@@ -818,7 +818,8 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
     """Loops of every engine of the aircraft over its gas generator speed: lit (the operating line; below idle a
     start's acceleration), cold (cranked or spooling down) and the starter, in the cockpit and outside (on the
     ground beside the aircraft, `distance` m to its right), with manifest.json and pywopwop-engines.xml. Layers:
-    compressor (the inlet's whine), core (combustion and the jet), turbine (the power turbine, at 100 % Np),
+    compressor (the inlet's whine), core (combustion and the jet), turbine (the power turbine, at 100 % Np; in
+    FlightGear faded by Np, NP_EXPONENT),
     starter. like: a rotor bank's manifest.json (or its folder) whose gains these loops take, so that their
     loudness against its loops is the physics'; default: the loudest at peak_dbfs. A tiltrotor's engines turn with
     its nacelles (nacelle_deg: 90 helicopter mode, 0 airplane mode); off 90 the files and sounds are named for it
@@ -914,19 +915,33 @@ def make_engine_bank(aircraft_name, out_dir, distance=50.0, fs=48000.0, duration
                     gearbox=dict(rpm_property=tr.rpm_property, nominal_rpm=tr.rpm_nominal or ac.main.rpm,
                                  full_rpm=gearbox_full_rpm(tr, ac),
                                  torque_properties=tr.torque_properties) if tr else None,
-                    note="levels: dB re 20 uPa at the listener before the gain; turbine loops at 100 % Np; "
+                    note="levels: dB re 20 uPa at the listener before the gain; turbine loops at 100 % Np "
+                         f"(played with (Np / 100)^{NP_EXPONENT:g}, Smith and Bushell's); "
                          f"outside: on the ground {distance:g} m to the right", files=files)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (out / "pywopwop-engines.xml").write_text(flightgear_engine_xml(manifest))
     return manifest
 
 
+# The power turbine's loops, rendered at 100 % Np, against the power turbine's own speed at a given Ng (its rotor slowed
+# by the rotor brake, or coming up behind the gas generator in a start): Smith and Bushell's turbine noise (ANOPP
+# section 8.9, eq. 4), its power the rotor's tip Mach number cubed times the flow, and the gas generator sets the flow,
+# so the loop's amplitude goes with (Np / 100)^1.5. GE's method (section 8.3), which the loops are rendered by, holds
+# the stage's work and grows without bound as the tip speed falls (Np 50 %: tones +12 dB), so it can't be carried off
+# the governed speed; no published measurement of a free turbine's noise against its speed was found. The spectrum
+# moves with Np in GE's method (its bands by f over the blade passing frequency), which the loop's pitch by n2 gives.
+# Off where the fade is 60 dB down: Np 1 %.
+NP_EXPONENT = 1.5
+NP_GATE_PCT = 100.0 * 10.0 ** (-60.0 / (20.0 * NP_EXPONENT))
+
+
 def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
     """FlightGear <fx> entries: per engine and layer, the loops cross-faded by equal power over its n1, each pitched
     by n1 over its own (the turbine's by n2 over 100 %; the core's not: the combustor sets its spectrum). The lit
     loops while the engine runs, the cold ones while it doesn't, the starter's while it cranks; the core's with the
-    fuel flow over its loop's (combustion noise's amplitude goes with the heat release at a given Ng). The APU's by
-    its speed. Inside, the shut and the all-open cockpit's loops by how much of the doors and windows is open."""
+    fuel flow over its loop's (combustion noise's amplitude goes with the heat release at a given Ng); the power
+    turbine's with (n2 / 100)^NP_EXPONENT, off under NP_GATE_PCT. The APU's by its speed. Inside, the shut and the
+    all-open cockpit's loops by how much of the doors and windows is open."""
     from .wind import _e, _v, _ramp_e
     have = {(f["engine"], f["layer"], f["state"], f["ng"], f["observer"]): f for f in manifest["files"]}
     dist = manifest["exterior_distance_m"]
@@ -945,9 +960,9 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
     out = []
     mode = f"{manifest['mode']}-" if manifest.get("mode") else ""
 
-    def series(who, layer, state, grid, view, speed, extra, lo0=0.0, pitch="n1", n2=None):
+    def series(who, layer, state, grid, view, speed, extra, lo0=0.0, pitch="n1", n2=None, gate=()):
         """one layer's loops over the speed (an expression, percent): equal-power cross-fades, each pitched by the
-        speed over its own (pitch 'n2': by n2 over 100 %; None: not pitched)"""
+        speed over its own (pitch 'n2': by n2 over 100 %; None: not pitched); gate: more condition terms"""
         pts = [n for n in grid if (who, layer, state, n, view) in have]
         for i, n in enumerate(pts):
             f = have[(who, layer, state, n, view)]
@@ -963,8 +978,9 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
                     f"<greater-than>{speed}<value>{lo:g}</value></greater-than>"]
             if hi is not None:
                 cond.append(f"<less-than>{speed}<value>{hi:g}</value></less-than>")
+            cond += list(gate)
             if pitch == "n2":
-                pt = f"\t\t\t<pitch>{n2}<factor>0.01</factor><min>0.05</min><max>1.3</max></pitch>\n"
+                pt = f"\t\t\t<pitch>{n2}<factor>0.01</factor><min>{NP_GATE_PCT / 100.0:.4g}</min><max>1.3</max></pitch>\n"
             elif pitch == "n1":
                 pt = (f"\t\t\t<pitch>{speed}<factor>{1.0 / n:.6g}</factor><min>{lo / n:.4g}</min>"
                       f"<max>{(hi or 1.3 * n) / n:.4g}</max></pitch>\n")
@@ -994,7 +1010,9 @@ def flightgear_engine_xml(manifest, sound_dir="Sounds/pywopwop"):
             series(who, "core", "lit", manifest["lit_ng"], view, n1,
                    lambda f: lit + [_e("clip", _e("div", ff, _v(max(f["fuel_pph"], 1.0))),
                                        "<clipMin>0</clipMin><clipMax>3</clipMax>")], lit_lo, pitch=None)
-            series(who, "turbine", "lit", manifest["lit_ng"], view, n1, lambda f: lit, lit_lo, pitch="n2", n2=n2)
+            np_fade = _e("pow", _e("div", n2, _v(100.0)), _v(NP_EXPONENT))
+            series(who, "turbine", "lit", manifest["lit_ng"], view, n1, lambda f: lit + [np_fade], lit_lo,
+                   pitch="n2", n2=n2, gate=[f"<greater-than>{n2}<value>{NP_GATE_PCT:.3g}</value></greater-than>"])
             series(who, "starter", "starter", manifest["starter_ng"], view, n1, lambda f: [crank])
     gb = manifest.get("gearbox")
     gfile = have.get(("gearbox", "gearbox", "run", 100.0, "cockpit"))

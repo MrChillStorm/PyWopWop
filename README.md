@@ -320,7 +320,7 @@ system ROTONET uses for a helicopter's engines (ANOPP's fan, combustion and turb
 | Cycle | along the operating line by gas generator speed Ng: the compressor's temperature rise as a power of Ng through its published delivery pressures; the flight model's fuel flow (steady, or a start's acceleration schedule below idle); the turbines passing the flow as Stodola's ellipse law says, calibrated on the published power turbine inlet temperature; the shaft power of the flight model's torque line. Cold (cranked, or spooling down): the same air without fuel |
 | Compressor | the first two stages' whine, radiated forward from the inlet: Heidmann's method (NASA TM X-71763) in Hough and Weir's revision for small engines (NASA CR-198300): broadband, the blade-passing tones (cut off at low speed), the inlet distortion's tones, and once the first stage's relative tip speed is supersonic the buzz-saw's tones at the shaft's orders; the second stage heard through the first |
 | Combustion | GE's (Matta's) core noise method in SAE ARP 876, through the turbines (GE's transmission loss), radiated aft from the exhaust |
-| Power turbine | its last stage by GE's turbine method (FAA-RD-77-4), from the exhaust, where it works at its governed speed |
+| Power turbine | its last stage by GE's turbine method (FAA-RD-77-4), from the exhaust, where it works at its governed speed. Off it (the rotor brake holding it, a start bringing it up behind the gas generator) FlightGear plays that loop slowed to its speed and with its level by Smith and Bushell's turbine noise (ANOPP section 8.9: the tip Mach number cubed at the gas generator's flow), off at 1 %: GE's method holds the stage's work and grows without bound as the speed falls, and no measurement of a free turbine's noise against its speed was found |
 | Jet | the exhaust's mixing noise, SAE ARP 876's acoustic power |
 | Starter | the air turbine starter while it cranks: its turbine's tones and broadband (GE's method) through the engine's cowling (mass law), its exhaust ducted overboard; the bleed air reaches it choked, so its loading holds as it speeds up |
 | APU | by its recorded signature (`presets/apu/`): its shaft's orders and its broadband spectrum moving with its speed, their power with the speed to the 5th |
@@ -352,7 +352,7 @@ The bank has each engine lit at 14 gas generator speeds (20-104 %: below idle a 
 operating line), cold at 13 (3-100 %: cranking, and spooling down after a shutdown or a flameout) and its starter
 at 11 (3-62 %), the APU at 9 speeds (5-100 %) and the gearbox at full torque, in the cockpit with everything shut and
 everything open and outside (on the ground 50 m to the right). Layers: `compressor`, `core` (combustion and jet), `turbine`
-(the power turbine, at 100 % Np), `starter`, `apu` and `gearbox`. `--like` takes a rotor bank's gains,
+(the power turbine, at 100 % Np; played with (Np / 100)^1.5), `starter`, `apu` and `gearbox`. `--like` takes a rotor bank's gains,
 so the engines' loudness against its loops is the physics'. `pywopwop-engines.xml` plays each engine's loops by its
 own properties: cross-faded by equal power on `n1-pct` and pitched by n1 over the loop's own Ng (the turbine's by
 `n2-pct`; the core's not, the combustor sets its spectrum), the lit loops while `running` is set and the cold ones
@@ -389,7 +389,7 @@ public source gives them: the vane counts, the stages' diameters and pressure ra
 power turbine's last stage, the exhaust's area, the air turbine starter, the cabin's walls (`presets/engines/t700.toml`
 and `presets/uh60a.toml` say which). GE's and Heidmann's methods are empirical, good to about 5 dB in level. Not
 modelled: the igniters, the light-off itself (the heat release's pulse lies near 10 Hz), the gas generator turbine and
-the centrifugal stage (the blade rows around them block them), the power turbine while it runs the rotor up, the
+the centrifugal stage (the blade rows around them block them), the power turbine's own spectrum while it runs the rotor up (its governed speed's, slowed), the
 cabin's own systems (fans, avionics), and the airframe's structure-borne paths but the gearbox's. FlightGear clips a
 sound's volume at one, so the core's loops follow a fuel flow below their own but not one above it. The UH-60's flight
 model cranks the gas generator to 24 % on the starter; the recorded start lights off from about 30 %.

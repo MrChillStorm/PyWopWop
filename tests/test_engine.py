@@ -3,6 +3,7 @@ from dataclasses import replace
 import xml.etree.ElementTree as ET
 
 import numpy as np
+import pytest
 
 from pywopwop import engine as en
 from pywopwop.model import Observer
@@ -135,3 +136,14 @@ def test_flightgear_engine_section(tmp_path):
     assert all(n.startswith("pww-airplane-") for n in names2) and not set(names2) & set(names)
     turbine2 = next(s for s in root2.find("fx").findall("engine") if "turbine" in s.find("name").text)
     assert "drive/nr-pct" in ET.tostring(turbine2.find("pitch")).decode()
+    # the power turbine's level by its own speed (Smith and Bushell's tip Mach number cubed), off where it is 60 dB down,
+    # and its pitch held only where it is off
+    for t, prop in ((turbine, "/engines/engine[0]/n2-pct"), (turbine2, "/fdm/jsbsim/drive/nr-pct")):
+        pw = t.find("volume/expression/product/pow")
+        assert pw.find("div/property").text == prop and float(pw.findall("value")[0].text) == en.NP_EXPONENT
+        gate = [g for g in t.find("condition/and").findall("greater-than") if g.findtext("property") == prop]
+        assert len(gate) == 1 and abs(float(gate[0].findtext("value")) - 1.0) < 1e-9
+        assert 20 * en.NP_EXPONENT * np.log10(en.NP_GATE_PCT / 100.0) == pytest.approx(-60.0)
+        assert float(t.find("pitch").findtext("min")) == pytest.approx(en.NP_GATE_PCT * 0.01)
+    assert not any(s.find("volume/expression/product/pow") is not None for s in sounds if "-turbine-" not in
+                   s.find("name").text)
