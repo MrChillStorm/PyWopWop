@@ -1,0 +1,59 @@
+# Rolls-Royce (Allison) AE 3007H / F137-RR-100, the RQ-4 Global Hawk's engine: a two-shaft turbofan, bypass ratio about 5,
+# with a single-stage wide-chord fan, the AE 2100's and AE 1107C's 14-stage compressor, an annular combustor, a two-stage
+# high pressure turbine and a three-stage low pressure turbine, the two flows mixed into one nozzle.
+#
+# Published: one fan stage, 14 compressor stages (variable inlet guide vanes and 5 stators), 2 + 3 turbine stages; the
+# low pressure rotor's limit 8,700 rpm and the high pressure rotor's 16,270 rpm; the nozzle's area 0.4323 m^2 (EASA
+# type-certificate data sheet IM.E.044, the AE 3007A's). 24 fan blades, 38.5 in across (Rolls-Royce's data sheet).
+# Take-off: 129 kg/s of air, fan pressure ratio 1.76, bypass ratio 4.8, overall pressure ratio 20, turbine entry 1,380 K
+# (the Global Hawk flight model's cycle, fitted to the ICAO data bank's AE 3007A2 row; 9,440 lbf). The Global Hawk's
+# is flat rated at 7,500 lbf at sea level.
+#
+# Measured (the MV-22B's AE 1107C, the same compressor): 32 blades on the compressor's first stage.
+#
+# Measured from recordings of Global Hawks (see presets/jets/globalhawk.toml): the fan's 24 blades (confirmed), and two
+# of the low pressure turbine's blade counts.
+#
+# Estimated (no public source found): the fan's outlet guide vane count, its hub and its rotor-stator spacing, the
+# low pressure turbine's size, the compressor's first stage diameter, the efficiencies.
+[engine]
+name = "AE 3007H"
+n1_rpm = 8700.0                  # 100 % fan speed: the low pressure rotor's limit
+n2_rpm = 16270.0                 # the high pressure rotor's limit
+nozzle_area = 0.4323             # m^2, the mixed flows' one nozzle (published)
+bypass_ratio = 4.8
+reference_thrust_n = 41991.0     # 9,440 lbf, the cycle's reference row (AE 3007A2 take-off)
+reference_opr = 20.2
+reference_t4_k = 1380.0
+reference_n1_pct = 100.0         # the fan's speed at the reference thrust (assumed: its limit)
+fan_efficiency = 0.88
+compressor_efficiency = 0.84
+turbine_efficiency = 0.89
+burner_efficiency = 0.99
+fuel_lhv = 43.2e6                # J/kg, JP-8
+
+[fan]
+rotor_blades = 24                # published
+stator_vanes = 52                # estimated: more than twice the blades, the fundamental cut off, as fans of its time
+tip_diameter = 0.978             # m (38.5 in), published
+hub_tip_ratio = 0.35             # estimated
+rotor_stator_spacing = 150.0     # percent of the rotor chord, estimated
+inlet_guide_vanes = false
+
+[compressor]                     # the first axial stage, heard through the fan from the inlet: the AE 1107C's
+rotor_blades = 32                # measured on the AE 1107C
+stator_vanes = 48
+tip_diameter = 0.38
+hub_tip_ratio = 0.45
+rotor_stator_spacing = 60.0
+inlet_guide_vanes = true
+stage_pressure_ratio = 1.35
+stage_efficiency = 0.86
+through_fan_db = -10.0           # what the fan's rotor and its stators in front of it take: estimated
+
+[lp_turbine]                     # its last stage, which the nozzle radiates
+rotor_blades = [78, 70]          # measured: two taxiing Global Hawks have tones at the fan shaft's 78th and 70th orders
+                                 # (2,895 and 2,601 Hz with the fan's blade passing tone at 891 Hz), taken for two of the
+                                 # three stages' blades; a third line at the 45th order is left out (not identified)
+tip_diameter = 0.62              # m, estimated
+inlet_area = 0.12                # m^2, the stage's annulus, estimated

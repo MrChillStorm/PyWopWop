@@ -1,0 +1,59 @@
+# Northrop Grumman RQ-4A Global Hawk (NASA 872): one AE 3007H in a nacelle on top of the rear fuselage, between the
+# V-tail's panels; no cockpit. The inside listener is where the nose camera's picture comes from: in the forward
+# equipment bay under the nose's radome and skin. Positions in the aircraft frame: x forward, y left, z up, from the
+# nose's tip on the ground line (m), from the FlightGear model's geometry (its fdm/data/geometry.json).
+#
+# Estimated: all of the bay's walls (a glass and carbon sandwich skin, no trim, equipment racks inside); no public
+# source describes them, and nothing was ever recorded in there.
+[aircraft]
+name = "RQ-4A Global Hawk"
+cockpit = [-1.2, 0.0, 1.9]       # the forward bay, 1.2 m behind the nose's tip
+inside_property = "/sim/sound/pywopwop/inside"     # the nose camera's view: not one FlightGear calls internal (it would draw the nose round the camera)
+windscreen_m = 1.2               # the bay's wall, as far from the nose's tip: where the wind's boundary layer is taken
+height_m = 1.6                   # the wing's height above the ground standing on its wheels: the sources' height outside
+# the flight conditions the loops are made at: [altitude ft, Mach, the maximum net thrust there N] (the flight model's
+# engine tables, ISA: 7,500 lbf flat rated on the ground; 2,617 lbf at 30,000 ft and 662 lbf at 60,000 ft at Mach 0.6)
+conditions = [[0.0, 0.0, 33362.0], [30000.0, 0.6, 11641.0], [60000.0, 0.6, 2945.0]]
+# The engine through the airframe, at the listener at 100 % fan speed (dB re 20 uPa): each shaft's once-a-turn tone
+# and a band of rumble. Their level is set from a Citation X's cockpit in the climb (two AE 3007s on the rear fuselage,
+# the cockpit far ahead of them, as this bay is: refs/recordings/citationx_cockpit_takeoff), where each shaft's tone
+# stands 17 to 20 dB under the cockpit's overall level, which is the wind's: 20 dB under this bay's wind at 150 to 200
+# kt (103 dB), and 3 dB less for one engine. The band: assumed. Nothing was ever recorded in a Global Hawk's nose.
+# It is what is left inside when the air is too thin to carry the engine's sound round the fuselage
+structure_tone_db = 80.0
+structure_band_db = 62.0
+# what the fuselage and the wing between the engine and the nose take of its airborne sound on the way there (the bay
+# is 6 to 11 m ahead of the intake and the nozzle, out of their sight): ASSUMED
+inside_db = -12.0
+
+[cabin]
+surface_mass = 4.0               # kg/m^2: a composite sandwich skin, estimated
+coincidence_hz = 2500.0          # a stiff, light sandwich: low coincidence, estimated
+loss_factor = 0.03
+window_share = 0.0
+leak = 3e-3                      # an unpressurised bay: vents and seams, estimated
+absorption = [[125.0, 0.08], [250.0, 0.10], [500.0, 0.15], [1000.0, 0.20], [2000.0, 0.25], [4000.0, 0.30]]
+first_mode_hz = 110.0
+
+[[engine]]
+name = "engine"
+type = "ae3007h"
+inlet = [-6.86, 0.0, 2.57]       # the intake's lip, above the fuselage
+exhaust = [-12.17, 0.0, 2.57]    # the nozzle's mouth
+fan_rpm_property = "/fdm/jsbsim/engine/fan-rpm"
+thrust_property = "/fdm/jsbsim/engine/thrust-lbf"
+# the fan's speed against the thrust, measured from recordings (refs/recordings/globalhawk_*; tools/turbofan_recordings.py
+# and the report): 8,290 rpm at take-off (a take-off pass: the buzz-saw's lines 161.9 Hz apart and the blade passing
+# tone at 24.0 of them, the Doppler shift taken out by the tone's fall as the aircraft passes) and 2,230 to 2,270 rpm
+# at ground idle (two taxiing aircraft: the blade passing tone at 891 and 906 Hz). The speed goes with the square root
+# of the thrust's share of the maximum; the idle's 7 % gives 2,190 rpm
+idle_rpm = 0.0
+thrust_rpm_span = 8290.0
+rated_thrust_n = 33362.0         # 7,500 lbf
+
+# Against a recording of a Global Hawk's take-off (refs/recordings/globalhawk_takeoff_airboyd, 27 s, coming towards the
+# camera; the Doppler shift taken out) Heidmann's fan as it stands has the blade passing tone over the buzz-saw's lines
+# within 1 dB at 60 deg off the nose (recorded +6.7 dB over orders 8 to 20). Its spectrum's shape does not fit: with
+# the means aligned the model is 10 dB low from 200 to 400 Hz and 7 to 11 dB high at 800 to 1000 Hz and above 3 kHz
+# (rms 7.5 dB, 200 Hz to 4 kHz). Corrections of the buzz-saw and the broadband read off the lines' prominence were
+# tried (+7.5 and -7 dB) and made it no better: not kept. [fan_measured] (buzz_db, broadband_db) is there for one that does.
