@@ -264,20 +264,38 @@ def core_noise(e, s, theta, atm=None):
     t = e.lp_turbine
     n = e.n1_rpm * s.n1 / 100.0 / 60.0
     rows = t["rotor_blades"] if isinstance(t["rotor_blades"], (list, tuple)) else [t["rotor_blades"]]
+    # GE's method at the reference row's work and tip speed, carried to this state by Smith and Bushell's law (ANOPP
+    # section 8.9: the power as the tip Mach number cubed times the flow), as engine.py carries a power turbine off
+    # its governed speed: GE's correlation holds the stage's work and grows without bound as the tip speed falls
+    # (at idle its tones came out 122 dB(A) at 50 m, over the whole engine at take-off)
+    k = (s.n1 / r.n1) ** 3 * s.Wc / r.Wc
+    n_ref = e.n1_rpm * r.n1 / 100.0 / 60.0
     for i, b in enumerate(rows):
-        one = en._turbine(max(s.T45 - s.T5, 0.0) / s.T45, np.pi * t["tip_diameter"] * n, t["inlet_area"], b * n, theta, atm)
+        one = en._turbine(max(r.T45 - r.T5, 0.0) / r.T45, np.pi * t["tip_diameter"] * n_ref, t["inlet_area"], b * n, theta, atm)
+        one = _scaled(one, k)
         if i:
             one.bands = 0.0 * one.bands                # the broadband once; each row its tones
         turb += one
     return comb, turb
 
 
-def jet_mixing(e, s, atm=None):
-    """the mixed jet's noise, in flight less by its velocity relative to the air"""
+# A subsonic jet's mixing noise by direction, dB under its loudest, every 10 deg from the inlet's axis (180: straight
+# down the jet): loudest 30 to 40 deg off the jet's axis, about 10 dB less ahead of the engine, falling again inside
+# the cone of silence on the axis. The shape SAE ARP 876 and the jet-noise literature give for jets near Mach 0.8, AS
+# REMEMBERED: no table was at hand, so the figures are good to a few dB. engine.py's jet has no directivity (a
+# turboshaft's slow exhaust); a turbofan's is heard to.
+_D_JET = np.array([-11.0, -11.0, -10.5, -10.0, -9.5, -9.0, -8.5, -8.0, -7.0, -6.0, -5.0, -3.5, -2.0, -0.7, 0.0, 0.0, -2.0, -6.0, -11.0])
+_D_JET_MEAN = float(np.sum(10.0 ** (0.1 * _D_JET) * np.sin(np.radians(np.clip(en._TH, 2.0, 178.0)))) / np.sum(np.sin(np.radians(np.clip(en._TH, 2.0, 178.0)))))
+
+
+def jet_mixing(e, s, theta=None, atm=None):
+    """the mixed jet's noise at theta (deg from the inlet's axis; None: the mean over all directions), in flight less
+    by its velocity relative to the air. The directivity keeps the sound power engine.jet_noise gives"""
     atm = atm or Atmosphere(0.0)
     out = en.jet_noise(s.v_jet, s.rho_jet, e.nozzle_area, atm)
     rel = max(s.v_jet - s.mach * atm.c, 0.0) / max(s.v_jet, 1.0)
-    out.bands = out.bands * rel ** 5.5
+    d = 1.0 if theta is None else 10.0 ** (0.1 * float(np.interp(theta, en._TH, _D_JET))) / _D_JET_MEAN
+    out.bands = out.bands * rel ** 5.5 * d
     return out
 
 
@@ -345,7 +363,15 @@ def load_jet(name_or_path):
                structure_band_db=a.get("structure_band_db"), **e)
 
 
-OUTSIDE = (("front", 0.0), ("side", 90.0), ("rear", 150.0))      # where the aircraft is heard from, deg from its nose
+# Outside, each source is one loop, made where it is loudest (deg from the nose), and the simulator's own sound cone
+# gives it its direction: (full cone angle inside which it plays in full, full angle beyond which it plays at the outer
+# gain, that gain), about the source's axis: the intake's forward, the nozzle's aft. Fitted by eye to the methods'
+# directivities: Heidmann's inlet tones and broadband (full to 40 deg off the axis, 25 dB down at 110), his discharge
+# (within 3 dB from 100 to 150 deg off the nose, 35 dB down ahead), the jet's (10 dB down ahead). A cone is one gain for
+# the whole spectrum and has no dip on its axis, so the nozzle's on-axis fall is not there.
+OUTSIDE = dict(fan=dict(at=30.0, axis="forward", cone=(80.0, 220.0, 0.056)),
+               fanaft=dict(at=125.0, axis="aft", cone=(160.0, 360.0, 0.018)),
+               core=dict(at=145.0, axis="aft", cone=(120.0, 360.0, 0.32)))
 LAYERS = ("fan", "fanaft", "core", "structure")
 
 
@@ -361,7 +387,7 @@ def jet_sources(jet, s, X, atm, inside):
     comb, turb = core_noise(e, s, th_ex, atm)
     aft += turb
     core = comb
-    core += jet_mixing(e, s, atm)
+    core += jet_mixing(e, s, th_ex, atm)
     return dict(fan=(inlet, fan_inlet(e, s, th_in, atm, **jet.fan_measured)), fanaft=(exh, aft), core=(exh, core))
 
 
@@ -384,7 +410,7 @@ def structure_source(jet, s):
 
 
 def render_jet(jet, n1_pct, altitude_ft=0.0, mach=0.0, max_thrust_n=None, observer=None, fs=48000.0, duration=8.0, seed=1,
-               pitch_headroom=1.3, f_highpass=25.0):
+               pitch_headroom=1.3, f_highpass=25.0, merge=True):
     """A seamless loop of the engine at a fan speed, heard riding with the aircraft: outside (an Observer by azimuth
     and distance, level with the engine in flight, standing on the ground at altitude 0) or inside (an Observer with
     a position). Returns a Render with the layers."""
@@ -413,7 +439,7 @@ def render_jet(jet, n1_pct, altitude_ft=0.0, mach=0.0, max_thrust_n=None, observ
     sig, lv = en._render_sources(srcs, observer, X, fs, duration, seed, "open" if on_ground else "free", jet.cabin,
                                  pitch_headroom, f_highpass, atm)
     # the fan's two ways out and the turbine play as one layer (all pitched by the fan's speed)
-    if "layer/fanaft" in sig:
+    if merge and "layer/fanaft" in sig:
         sig["layer/fan"] = sig.get("layer/fan", 0.0) + sig.pop("layer/fanaft")
         lv["fan"] = round(float(10.0 * np.log10(10.0 ** (0.1 * lv.get("fan", -200.0)) + 10.0 ** (0.1 * lv.pop("fanaft")))), 1)
     sig = {k: v for k, v in sig.items() if k != "total"}
@@ -444,14 +470,19 @@ def make_jet_bank(jet_name, out_dir, distance=50.0, fs=48000.0, duration=15.0, b
     jet = load_jet(jet_name)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    views = [Observer("inside", position=tuple(jet.cockpit))] + [Observer(n, az, 0.0, distance) for n, az in OUTSIDE]
+    inside = Observer("inside", position=tuple(jet.cockpit))
     renders = []
     for k, (alt, mach, fmax) in enumerate(jet.conditions):
         grid = _grid(jet, k)
         for j, n in enumerate(grid):
             ratio = max(grid[j + 1] / n if j + 1 < len(grid) else 1.0, 1.3)
-            for o in views:
-                r = render_jet(jet, n, alt, mach, fmax or jet.rated_thrust_n, o, fs, duration, seed + 100 * k + 7 * j, ratio)
+            made = [(inside, render_jet(jet, n, alt, mach, fmax or jet.rated_thrust_n, inside, fs, duration, seed + 100 * k + 7 * j, ratio))]
+            for layer, d in OUTSIDE.items():
+                o = Observer("outside", d["at"], 0.0, distance)
+                r = render_jet(jet, n, alt, mach, fmax or jet.rated_thrust_n, o, fs, duration, seed + 100 * k + 7 * j, ratio, merge=False)
+                r.signals = {x: v for x, v in r.signals.items() if x == "layer/" + layer}       # each source where it is loudest
+                made.append((o, r))
+            for o, r in made:
                 renders.append((k, n, o, r))
                 lv = r.levels()
                 progress(f"  {alt:6.0f} ft N1 {n:5.1f} {o.name:6s} " + "  ".join(f"{x.split('/')[-1]} {v['dba']:5.1f}" for x, v in lv.items())
@@ -477,21 +508,22 @@ def make_jet_bank(jet_name, out_dir, distance=50.0, fs=48000.0, duration=15.0, b
                     gain_db={g: round(20.0 * np.log10(v), 3) for g, v in gains.items()}, exterior_distance_m=distance,
                     conditions=[dict(altitude_ft=a, mach=m, max_thrust_lbf=round((f or jet.rated_thrust_n) / LBF),
                                      grid=list(_grid(jet, k))) for k, (a, m, f) in enumerate(jet.conditions)],
-                    outside=[dict(name=n, aspect_deg=az) for n, az in OUTSIDE], n1_rpm=jet.engine.n1_rpm,
+                    outside={k: dict(d, position=list(jet.inlet if k == "fan" else jet.exhaust)) for k, d in OUTSIDE.items()},
+                    n1_rpm=jet.engine.n1_rpm,
                     fan_rpm_property=jet.fan_rpm_property, running_property=jet.running_property, inside_property=jet.inside_property,
                     note="levels: dB re 20 uPa at the listener before the gain; outside: riding with the aircraft at "
-                         f"{distance:g} m, on the ground at altitude 0", files=files)
+                         f"{distance:g} m, on the ground at altitude 0, each source where it is loudest; its direction is the "
+                         "simulator's sound cone", files=files)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (out / "pywopwop-jet.xml").write_text(flightgear_jet_xml(manifest))
     return manifest
 
 
-def flightgear_jet_xml(manifest, sound_dir="Sounds/pywopwop", aspect_property="/sim/sound/pywopwop/aspect-deg",
-                       inside_property=None,
+def flightgear_jet_xml(manifest, sound_dir="Sounds/pywopwop", inside_property=None,
                        altitude_property="/position/altitude-ft", density_property="/environment/density-slugft3"):
-    """FlightGear <fx> entries: each layer's loops cross-faded by equal power over the fan's speed, between the flight
-    conditions over the altitude, and outside between the directions over the aspect the aircraft is seen at (deg from
-    its nose: a property the aircraft's Nasal keeps, aspect_property). The fan's and the structure's loops are pitched
+    """FlightGear <fx> entries: each layer's loops cross-faded by equal power over the fan's speed and between the flight
+    conditions over the altitude. Outside, each source plays from its own place (the intake, the nozzle) with a sound
+    cone about its axis (OUTSIDE), so its loudness follows where the aircraft is heard from. The fan's and the structure's loops are pitched
     by the fan's speed over their own; the core's are not. Above the highest condition the loops fade with the air's
     density over that condition's (a source's pressure goes with rho c). Inside loops play in internal views only,
     outside loops in the others. A loop's condition is true only inside its fades."""
@@ -500,12 +532,11 @@ def flightgear_jet_xml(manifest, sound_dir="Sounds/pywopwop", aspect_property="/
     rpm = f"<property>{manifest['fan_rpm_property']}</property>"
     run = f"<property>{manifest['running_property']}</property>" if manifest.get("running_property") else None
     alt = f"<property>{altitude_property}</property>"
-    asp = f"<property>{aspect_property}</property>"
     # where the inside loops play: FlightGear's internal views, or a property of the aircraft's own (an aircraft
     # whose inside listener is not a view FlightGear calls internal: a camera on an unmanned one)
     ins = inside_property or manifest.get("inside_property") or "sim/current-view/internal"
     conds = manifest["conditions"]
-    dirs = manifest["outside"]
+    cones = manifest["outside"]
     dist = manifest["exterior_distance_m"]
     out = []
 
@@ -531,13 +562,10 @@ def flightgear_jet_xml(manifest, sound_dir="Sounds/pywopwop", aspect_property="/
             rho_top = _A(c["altitude_ft"] * FT).rho / 515.378818           # slug/ft^3
             extra = [_e("clip", _e("div", f"<property>{density_property}</property>", _v(rho_top)),
                         "<clipMin>0</clipMin><clipMax>1</clipMax>")]
-        for view in ["inside"] + [d["name"] for d in dirs]:
+        for view in ("inside", "outside"):
             inside = view == "inside"
             wd, cd = [], []
-            if not inside:
-                i = [d["name"] for d in dirs].index(view)
-                wd, cd, _, _ = fade(asp, [d["aspect_deg"] for d in dirs], i)
-            for layer in ("fan", "core", "structure"):
+            for layer in ("fan", "fanaft", "core", "structure"):
                 pts = [n for n in c["grid"] if (layer, k, n, view) in have]
                 for i, n in enumerate(pts):
                     f = have[(layer, k, n, view)]
@@ -553,13 +581,22 @@ def flightgear_jet_xml(manifest, sound_dir="Sounds/pywopwop", aspect_property="/
                     cond = [(f"<property>{ins}</property>" if inside else f"<not><property>{ins}</property></not>")] \
                         + ([f"<greater-than>{run}<value>0.5</value></greater-than>"] if run else []) + cn + ca + cd
                     pt = ""
-                    if layer != "core":
+                    if layer != "core":                      # the fan's and the structure's follow its speed
                         pt = (f"\t\t\t<pitch>{rpm}<factor>{100.0 / manifest['n1_rpm'] / n:.6g}</factor><min>{(lo or 0.3 * n) / n:.4g}</min>"
                               f"<max>{(hi or 1.3 * n) / n:.4g}</max><offset>0</offset></pitch>\n")
+                    place = ""
+                    if not inside:
+                        # FlightGear's sound frame: x aft, y left, z up, m; the cone's angles are whole angles
+                        cn = cones[layer]
+                        px, py, pz = cn["position"]
+                        ax = -1.0 if cn["axis"] == "forward" else 1.0
+                        place = (f"\t\t\t<position><x>{-px:.2f}</x><y>{py:.2f}</y><z>{pz:.2f}</z></position>\n"
+                                 f"\t\t\t<orientation><x>{ax:g}</x><y>0</y><z>0</z><inner-angle>{cn['cone'][0]:g}</inner-angle>"
+                                 f"<outer-angle>{cn['cone'][1]:g}</outer-angle><outer-gain>{cn['cone'][2]:g}</outer-gain></orientation>\n")
                     out.append(f"\t\t<engine>\n\t\t\t<name>pww-jet-{layer}-{int(c['altitude_ft'])}-{n:g}-{view}</name>\n"
                                f"\t\t\t<mode>looped</mode>\n\t\t\t<path>{sound_dir}/{f['file']}</path>\n"
                                f"\t\t\t<condition><and>{''.join(cond)}</and></condition>\n"
-                               f"\t\t\t<volume><expression>{vol}</expression></volume>\n" + pt
+                               f"\t\t\t<volume><expression>{vol}</expression></volume>\n" + pt + place
                                + ("" if inside else f"\t\t\t<reference-dist>{dist:g}</reference-dist>\n"
                                                     "\t\t\t<max-dist>5000</max-dist>\n")
                                + "\t\t</engine>\n")

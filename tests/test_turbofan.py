@@ -65,6 +65,27 @@ def test_buzz_saw_only_with_a_supersonic_tip():
     assert sum(1 for o in orders(fast) if o < 24) >= 8     # the shaft's orders under the blade passing tone
 
 
+def test_the_jet_is_loudest_behind():
+    e = tf.load_turbofan("ae3007h")
+    s = tf.turbofan_state(e, 33362.0, 95.3)
+    lv = lambda th: 10 * np.log10(tf.jet_mixing(e, s, th).bands.sum())
+    assert lv(145.0) - lv(0.0) > 8.0 and lv(145.0) - lv(90.0) > 4.0 and lv(145.0) > lv(180.0)
+    # the directivity moves the sound about, it does not add any: the mean over the sphere is the undirected jet's
+    th = np.arange(1.0, 180.0, 2.0)
+    mean = sum(tf.jet_mixing(e, s, t).bands.sum() * np.sin(np.radians(t)) for t in th) / np.sin(np.radians(th)).sum()
+    assert abs(10 * np.log10(mean / tf.jet_mixing(e, s).bands.sum())) < 0.5
+
+
+def test_idle_is_quieter_than_take_off():
+    jet = tf.load_jet("globalhawk")
+    o = Observer("side", 90.0, 0.0, 50.0)
+    idle = tf.render_jet(jet, 25.2, 0.0, 0.0, 33362.0, o, 16000.0, 3.0).levels()
+    full = tf.render_jet(jet, 95.3, 0.0, 0.0, 33362.0, o, 16000.0, 3.0).levels()
+    # the turbine's tones do not run away as the engine slows (they did, by GE's method off its design)
+    assert idle["layer/fan"]["dba"] < full["layer/fan"]["dba"] - 10.0
+    assert 50.0 < idle["layer/fan"]["dba"] < 90.0
+
+
 def test_loops_are_seamless_and_altitude_quiets_them():
     jet = tf.load_jet("globalhawk")
     o = Observer("side", 90.0, 0.0, 50.0)
@@ -87,6 +108,8 @@ def test_flightgear_section(tmp_path):
     for s in root.find("fx"):
         assert (tmp_path / s.find("path").text.split("/")[-1]).exists()
         assert (s.find("pitch") is None) == ("-core-" in s.find("name").text)
+        # outside, each source has its place and its cone; inside, none
+        assert (s.find("orientation") is None) == s.find("name").text.endswith("-inside")
         # a FlightGear condition takes properties and values only
         for c in s.find("condition").iter():
             assert c.tag in ("condition", "and", "not", "property", "value", "greater-than", "less-than")
